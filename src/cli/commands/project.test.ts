@@ -3,9 +3,9 @@ import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createTmpDir, removeTmpDir, createGitRepo } from '../test-helpers';
-import { createProject, mergeProject } from './project';
+import { createGitRepo, createTmpDir, removeTmpDir } from '../test-helpers';
 import { initNightshift } from './init';
+import { createProject, mergeProject } from './project';
 
 describe('createProject', () => {
   let tmpDir: string;

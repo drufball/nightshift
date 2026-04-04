@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTmpDir, removeTmpDir } from '../test-helpers';
-import { createTeam } from './team';
 import { initNightshift } from './init';
+import { createTeam } from './team';
 
 describe('createTeam', () => {
   let tmpDir: string;
