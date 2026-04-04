@@ -4,8 +4,13 @@ import {
   Scripts,
   createRootRoute,
 } from '@tanstack/react-router';
+import appCss from '~/app.css?url';
+import { TooltipProvider } from '~/components/ui/tooltip';
 
 export const Route = createRootRoute({
+  head: () => ({
+    links: [{ rel: 'stylesheet', href: appCss }],
+  }),
   shellComponent: RootDocument,
 });
 
@@ -19,7 +24,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        {children}
+        <TooltipProvider>{children}</TooltipProvider>
         <Scripts />
       </body>
     </html>

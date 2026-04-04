@@ -10,7 +10,7 @@ export function registerServe(program: Command): void {
       // Resolve the package root from this file's location: src/cli/commands/ -> ../../..
       const packageRoot = join(import.meta.dir, '..', '..', '..');
 
-      const child = spawn('bun', ['run', 'vite', 'dev'], {
+      const child = spawn('bun', ['--bun', 'run', 'vite', 'dev'], {
         cwd: packageRoot,
         stdio: 'inherit',
       });
