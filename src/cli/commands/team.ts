@@ -1,6 +1,7 @@
-import { access, mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Command } from 'commander';
+import { assertInitialized, assertNotExists, assertValidName } from '../fs';
 
 export async function createTeam(
   cwd: string,
@@ -8,21 +9,14 @@ export async function createTeam(
   lead: string,
   members: string[],
 ): Promise<void> {
-  const teamsDir = join(cwd, '.nightshift', 'teams');
+  assertValidName(name, 'team');
+  assertValidName(lead, 'agent');
+  for (const m of members) assertValidName(m, 'agent');
 
-  try {
-    await access(teamsDir);
-  } catch {
-    throw new Error('Not initialized: run `nightshift init` first');
-  }
+  await assertInitialized(cwd);
 
-  const teamDir = join(teamsDir, name);
-  try {
-    await access(teamDir);
-    throw new Error(`Team already exists: ${name}`);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-  }
+  const teamDir = join(cwd, '.nightshift', 'teams', name);
+  await assertNotExists(teamDir, `Team already exists: ${name}`);
 
   await mkdir(teamDir, { recursive: true });
 

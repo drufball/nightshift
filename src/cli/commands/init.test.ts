@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { initNightshift } from '../../cli/commands/init';
-import { createTmpDir, removeTmpDir } from './helpers';
+import { createTmpDir, removeTmpDir } from '../test-helpers';
+import { initNightshift } from './init';
 
 describe('initNightshift', () => {
   let tmpDir: string;
@@ -25,6 +25,13 @@ describe('initNightshift', () => {
     const contents = readFileSync(join(tmpDir, 'nightshift.toml'), 'utf-8');
     expect(contents).toContain('[diff]');
     expect(contents).toContain('ignore');
+  });
+
+  it('nightshift.toml ignores bun.lock not pnpm-lock.yaml', async () => {
+    await initNightshift(tmpDir);
+    const contents = readFileSync(join(tmpDir, 'nightshift.toml'), 'utf-8');
+    expect(contents).toContain('bun.lock');
+    expect(contents).not.toContain('pnpm-lock.yaml');
   });
 
   it('creates .nightshift/agents directory', async () => {

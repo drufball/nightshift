@@ -1,27 +1,18 @@
-import { access, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Command } from 'commander';
+import { assertInitialized, assertNotExists, assertValidName } from '../fs';
 
 export async function createAgent(
   cwd: string,
   name: string,
   description?: string,
 ): Promise<void> {
-  const agentsDir = join(cwd, '.nightshift', 'agents');
+  assertValidName(name, 'agent');
+  await assertInitialized(cwd);
 
-  try {
-    await access(agentsDir);
-  } catch {
-    throw new Error('Not initialized: run `nightshift init` first');
-  }
-
-  const agentPath = join(agentsDir, `${name}.md`);
-  try {
-    await access(agentPath);
-    throw new Error(`Agent already exists: ${name}`);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-  }
+  const agentPath = join(cwd, '.nightshift', 'agents', `${name}.md`);
+  await assertNotExists(agentPath, `Agent already exists: ${name}`);
 
   const content = `---
 name: ${name}

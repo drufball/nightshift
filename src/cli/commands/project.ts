@@ -1,33 +1,28 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Command } from 'commander';
+import { assertInitialized, assertNotExists, assertValidName } from '../fs';
 
-function git(args: string, cwd: string): string {
-  return execSync(`git ${args}`, { cwd, stdio: 'pipe' }).toString().trim();
+function git(args: string[], cwd: string): string {
+  return execFileSync('git', args, { cwd, stdio: 'pipe' }).toString().trim();
 }
 
 export async function createProject(
   cwd: string,
   name: string,
-  _team: string,
+  team: string,
 ): Promise<void> {
-  const nightshiftDir = join(cwd, '.nightshift');
-  try {
-    await access(nightshiftDir);
-  } catch {
-    throw new Error('Not initialized: run `nightshift init` first');
-  }
+  assertValidName(name, 'project');
+  await assertInitialized(cwd);
 
-  const worktreePath = join(nightshiftDir, 'worktrees', name);
-  try {
-    await access(worktreePath);
-    throw new Error(`Project already exists: ${name}`);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-  }
+  const worktreePath = join(cwd, '.nightshift', 'worktrees', name);
+  await assertNotExists(worktreePath, `Project already exists: ${name}`);
 
-  git(`worktree add "${worktreePath}" -b "${name}"`, cwd);
+  // TODO: persist team association to a project config file
+  console.log(`Project team: ${team}`);
+
+  git(['worktree', 'add', worktreePath, '-b', name], cwd);
 }
 
 export async function mergeProject(cwd: string, name: string): Promise<void> {
@@ -39,13 +34,13 @@ export async function mergeProject(cwd: string, name: string): Promise<void> {
     throw new Error(`Project not found: ${name}`);
   }
 
-  const currentBranch = git('rev-parse --abbrev-ref HEAD', cwd);
-  git(`merge "${name}"`, cwd);
-  git(`worktree remove "${worktreePath}" --force`, cwd);
+  const currentBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
+  git(['merge', name], cwd);
+  git(['worktree', 'remove', worktreePath, '--force'], cwd);
 
   // Only delete the branch if we successfully merged and aren't on it
   if (currentBranch !== name) {
-    git(`branch -d "${name}"`, cwd);
+    git(['branch', '-d', name], cwd);
   }
 }
 

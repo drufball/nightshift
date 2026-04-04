@@ -1,13 +1,14 @@
-import { access, mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Command } from 'commander';
+import { assertNotExists } from '../fs';
 
 const NIGHTSHIFT_TOML = `[diff]
 ignore = [
   "**/*.test.ts",
   "**/*.spec.ts",
   "src/generated/**",
-  "pnpm-lock.yaml",
+  "bun.lock",
 ]
 `;
 
@@ -61,14 +62,10 @@ members = ["product-manager", "tech-lead"]
 export async function initNightshift(cwd: string): Promise<void> {
   const nightshiftDir = join(cwd, '.nightshift');
 
-  try {
-    await access(nightshiftDir);
-    throw new Error(
-      'Already initialized: .nightshift directory already exists',
-    );
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-  }
+  await assertNotExists(
+    nightshiftDir,
+    'Already initialized: .nightshift directory already exists',
+  );
 
   await writeFile(join(cwd, 'nightshift.toml'), NIGHTSHIFT_TOML);
 

@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createAgent } from '../../cli/commands/agent';
-import { initNightshift } from '../../cli/commands/init';
-import { createTmpDir, removeTmpDir } from './helpers';
+import { createTmpDir, removeTmpDir } from '../test-helpers';
+import { createAgent } from './agent';
+import { initNightshift } from './init';
 
 describe('createAgent', () => {
   let tmpDir: string;
@@ -76,6 +76,12 @@ describe('createAgent', () => {
     await createAgent(tmpDir, 'backend-dev');
     await expect(createAgent(tmpDir, 'backend-dev')).rejects.toThrow(
       /already exists/i,
+    );
+  });
+
+  it('throws if name contains invalid characters', async () => {
+    await expect(createAgent(tmpDir, 'My Agent!')).rejects.toThrow(
+      /invalid.*name/i,
     );
   });
 });

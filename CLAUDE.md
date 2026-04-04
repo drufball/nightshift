@@ -20,4 +20,4 @@ bun lint          # check
 bun lint:fix      # auto-fix
 ```
 
-Test helpers and tmp filesystem fixtures live in `src/__tests__/cli/helpers.ts`.
+Tests are co-located with source files (e.g. `init.ts` + `init.test.ts`). Shared test helpers and tmp filesystem fixtures live in `src/cli/test-helpers.ts`.

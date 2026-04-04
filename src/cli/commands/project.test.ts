@@ -3,9 +3,9 @@ import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { initNightshift } from '../../cli/commands/init';
-import { createProject, mergeProject } from '../../cli/commands/project';
-import { createGitRepo, createTmpDir, removeTmpDir } from './helpers';
+import { createTmpDir, removeTmpDir, createGitRepo } from '../test-helpers';
+import { createProject, mergeProject } from './project';
+import { initNightshift } from './init';
 
 describe('createProject', () => {
   let tmpDir: string;
@@ -52,6 +52,12 @@ describe('createProject', () => {
     await expect(
       createProject(tmpDir, 'my-feature', 'feature-team'),
     ).rejects.toThrow(/already exists/i);
+  });
+
+  it('throws if name contains invalid characters', async () => {
+    await expect(
+      createProject(tmpDir, 'My Feature!', 'feature-team'),
+    ).rejects.toThrow(/invalid.*name/i);
   });
 });
 
