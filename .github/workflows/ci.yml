@@ -20,4 +20,4 @@ jobs:
         run: bun run lint
 
       - name: Test
-        run: bun run test
+        run: bun test

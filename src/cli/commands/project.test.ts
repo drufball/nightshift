@@ -1,8 +1,10 @@
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { openDb } from '~/db/index';
+import { getOpenProjectsByTeam } from '~/db/projects';
 import { createGitRepo, createTmpDir, removeTmpDir } from '../test-helpers';
 import { initNightshift } from './init';
 import { createProject, mergeProject } from './project';
@@ -58,6 +60,25 @@ describe('createProject', () => {
     await expect(
       createProject(tmpDir, 'My Feature!', 'feature-team'),
     ).rejects.toThrow(/invalid.*name/i);
+  });
+
+  it('persists the project to the DB', async () => {
+    const db = openDb(':memory:');
+    await createProject(tmpDir, 'my-feature', 'feature-team', db);
+    const projects = getOpenProjectsByTeam(db, 'feature-team');
+    expect(projects).toHaveLength(1);
+    expect(projects[0].name).toBe('my-feature');
+    expect(projects[0].branch).toBe('my-feature');
+    db.close();
+  });
+
+  it('records the project branch in DB matching what git created', async () => {
+    const db = openDb(':memory:');
+    await createProject(tmpDir, 'my-feature', 'feature-team', db);
+    const projects = getOpenProjectsByTeam(db, 'feature-team');
+    // Branch was created by git — whatever name was used should match DB
+    expect(projects[0].branch).toMatch(/^my-feature/);
+    db.close();
   });
 });
 

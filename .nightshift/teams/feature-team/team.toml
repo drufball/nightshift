@@ -1,0 +1,3 @@
+name = "feature-team"
+lead = "project-lead"
+members = ["product-manager", "tech-lead"]

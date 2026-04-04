@@ -2,45 +2,75 @@ import { execFileSync } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Command } from 'commander';
+import type { Database } from '~/db/index';
+import { getDbPath, openDb } from '~/db/index';
+import { branchExists, insertProject, markProjectMerged } from '~/db/projects';
 import { assertInitialized, assertNotExists, assertValidName } from '../fs';
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, stdio: 'pipe' }).toString().trim();
 }
 
+function shortId(): string {
+  return Math.random().toString(16).slice(2, 6);
+}
+
+function resolveBranch(db: Database, name: string): string {
+  return branchExists(db, name) ? `${name}-${shortId()}` : name;
+}
+
 export async function createProject(
   cwd: string,
   name: string,
   team: string,
+  db?: Database,
 ): Promise<void> {
   assertValidName(name, 'project');
   await assertInitialized(cwd);
 
+  const resolvedDb = db ?? openDb(getDbPath(cwd));
+  const branch = resolveBranch(resolvedDb, name);
   const worktreePath = join(cwd, '.nightshift', 'worktrees', name);
   await assertNotExists(worktreePath, `Project already exists: ${name}`);
 
-  // TODO: persist team association to a project config file
-  console.log(`Project team: ${team}`);
-
-  git(['worktree', 'add', worktreePath, '-b', name], cwd);
+  git(['worktree', 'add', worktreePath, '-b', branch], cwd);
+  insertProject(resolvedDb, name, team, branch);
 }
 
-export async function mergeProject(cwd: string, name: string): Promise<void> {
+export async function mergeProject(
+  cwd: string,
+  name: string,
+  db?: Database,
+): Promise<void> {
   const worktreePath = join(cwd, '.nightshift', 'worktrees', name);
-
   try {
     await access(worktreePath);
   } catch {
     throw new Error(`Project not found: ${name}`);
   }
 
-  const currentBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
-  git(['merge', name], cwd);
-  git(['worktree', 'remove', worktreePath, '--force'], cwd);
+  const resolvedDb = db ?? openDb(getDbPath(cwd));
 
-  // Only delete the branch if we successfully merged and aren't on it
-  if (currentBranch !== name) {
-    git(['branch', '-d', name], cwd);
+  // Find matching open branch (may have suffix appended)
+  const branches = git(['branch', '--list', `${name}*`], cwd)
+    .split('\n')
+    .map((b) => b.trim().replace(/^[*+]\s*/, ''))
+    .filter(Boolean);
+  const branch = branches[0] ?? name;
+
+  const currentBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
+  git(['merge', branch], cwd);
+  git(['worktree', 'remove', worktreePath, '--force'], cwd);
+  if (currentBranch !== branch) {
+    git(['branch', '-d', branch], cwd);
+  }
+
+  // Mark all open projects with this name as merged
+  const openByName = resolvedDb
+    .prepare("SELECT id FROM projects WHERE name = ? AND status = 'open'")
+    .all(name) as { id: string }[];
+  for (const p of openByName) {
+    markProjectMerged(resolvedDb, p.id);
   }
 }
 
