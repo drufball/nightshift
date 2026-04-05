@@ -2,7 +2,7 @@ import { createServerFn } from '@tanstack/react-start';
 import type { Message } from '~/db/messages';
 import { getDb } from './db';
 import type { TeamMeta } from './teams';
-import { readTeams, resolveCwd } from './teams';
+import { orderedMembers, readTeams, resolveCwd } from './teams';
 
 export type AgentSessionMessage = {
   type: 'user' | 'assistant' | 'system';
@@ -37,9 +37,8 @@ async function readTeamMemberMeta(
   team: TeamMeta,
 ): Promise<Array<{ name: string; description: string; isLead: boolean }>> {
   const { readAgentMeta } = await import('./agent-runner');
-  const allNames = [team.lead, ...team.members.filter((m) => m !== team.lead)];
   return Promise.all(
-    allNames.map(async (name) => {
+    orderedMembers(team).map(async (name) => {
       try {
         const meta = await readAgentMeta(cwd, name);
         return {
@@ -58,20 +57,15 @@ async function readTeamMemberMeta(
  * LLM judge: given recent conversation, decides which agents (if any) should
  * respond next. Returns an empty array to signal "wait for user".
  *
- * Uses conversation-timing.spec.md as its live system prompt — edit that file
- * to tune routing behavior without touching code.
+ * The system prompt is passed in — read it once at the call site so this
+ * function stays pure and independently testable.
  */
 export async function runConversationJudge(
   messages: Message[],
   team: TeamMeta,
   allAgentNames: string[],
+  systemPrompt: string,
 ): Promise<string[]> {
-  const { readFile } = await import('node:fs/promises');
-
-  const specPath = new URL('./conversation-timing.spec.md', import.meta.url)
-    .pathname;
-  const systemPrompt = await readFile(specPath, 'utf-8');
-
   const roster = allAgentNames
     .map((name) => `- ${name}${name === team.lead ? ' (lead)' : ''}`)
     .join('\n');
@@ -113,6 +107,20 @@ export async function runConversationJudge(
   );
 }
 
+type RunAgentFn = (opts: {
+  agentName: string;
+  userMessage: string;
+  chatContext?: Message[];
+  teamMembers?: Array<{ name: string; description: string; isLead: boolean }>;
+  teamName?: string;
+  teamFolder?: string;
+  projectBranch?: string;
+  cwd: string;
+  existingSdkSessionId?: string;
+  onStatus?: (status: 'idle' | 'working', statusText?: string) => void;
+  onSessionId?: (sessionId: string) => void;
+}) => Promise<string>;
+
 /**
  * Runs the multi-agent conversation loop until the conversation reaches a
  * natural pause point or MAX_AGENT_TURNS is hit.
@@ -140,23 +148,39 @@ export async function runConversationLoop({
   teamMemberMeta: Array<{ name: string; description: string; isLead: boolean }>;
   projectBranch?: string;
   /** Injectable for tests — defaults to the real runAgent when omitted. */
-  runAgentFn?: (opts: {
-    db: import('~/db/index').Database;
-    teamId: string;
-    agentName: string;
-    userMessage: string;
-    chatContext?: Message[];
-    teamMembers?: Array<{ name: string; description: string; isLead: boolean }>;
-    teamName?: string;
-    teamFolder?: string;
-    projectBranch?: string;
-    cwd: string;
-    projectId?: string;
-  }) => Promise<string>;
+  runAgentFn?: RunAgentFn;
 }): Promise<void> {
-  const runAgent = runAgentFn ?? (await import('./agent-runner')).runAgent;
   const { join } = await import('node:path');
   const { insertMessage, getTeamMessages } = await import('~/db/messages');
+  const { getSession, setSessionSdkId, upsertSession } = await import(
+    '~/db/sessions'
+  );
+
+  // Build the default runAgent wrapper that handles DB status persistence.
+  // Tests override this entirely via runAgentFn.
+  const { runAgent } = await import('./agent-runner');
+  const defaultRunAgent: RunAgentFn = (opts) => {
+    const existing = getSession(db, teamId, opts.agentName);
+    return runAgent({
+      ...opts,
+      existingSdkSessionId: existing?.sdk_session_id ?? undefined,
+      onStatus: (status, statusText) => {
+        upsertSession(db, teamId, opts.agentName, status, statusText);
+      },
+      onSessionId: (sessionId) => {
+        setSessionSdkId(db, teamId, opts.agentName, sessionId);
+      },
+    });
+  };
+
+  const runAgentImpl = runAgentFn ?? defaultRunAgent;
+
+  // Read the judge system prompt once before entering the loop — avoid a
+  // disk read on every iteration and keep runConversationJudge pure.
+  const { readFile } = await import('node:fs/promises');
+  const specPath = new URL('./conversation-timing.spec.md', import.meta.url)
+    .pathname;
+  const judgeSystemPrompt = await readFile(specPath, 'utf-8');
 
   const allAgentNames = teamMemberMeta.map((m) => m.name);
   const respondedAgents = new Set<string>();
@@ -186,6 +210,7 @@ export async function runConversationLoop({
           recentMessages,
           team,
           allAgentNames,
+          judgeSystemPrompt,
         );
       } catch (err) {
         // Judge failed (API error, bad JSON, etc.) — fall back to the lead,
@@ -221,9 +246,7 @@ export async function runConversationLoop({
 
       let responseText: string;
       try {
-        const agentPromise = runAgent({
-          db,
-          teamId,
+        const agentPromise = runAgentImpl({
           agentName,
           userMessage: triggerContent,
           chatContext,
@@ -249,7 +272,6 @@ export async function runConversationLoop({
       } catch (err) {
         console.error(`[nightshift] agent ${agentName} failed:`, err);
         // Force the session idle in case runAgent's finally block never ran
-        const { upsertSession } = await import('~/db/sessions');
         upsertSession(db, teamId, agentName, 'idle', undefined);
         break;
       }
@@ -277,22 +299,16 @@ export const getTeamView = createServerFn({ method: 'GET' })
     const { getTeamMessages } = await import('~/db/messages');
     const { getSessionsByTeam } = await import('~/db/sessions');
 
-    const [db, teams] = await Promise.all([
-      getDb(),
-      readTeams(await resolveCwd()),
-    ]);
-    const team = (teams as TeamMeta[]).find((t) => t.name === data.teamId);
+    const cwd = await resolveCwd();
+    const [db, teams] = await Promise.all([getDb(), readTeams(cwd)]);
+    const team = teams.find((t) => t.name === data.teamId);
     if (!team) throw new Error(`Team not found: ${data.teamId}`);
 
     const projects = getOpenProjectsByTeam(db, data.teamId);
     const messages = getTeamMessages(db, data.teamId);
     const sessions = getSessionsByTeam(db, data.teamId);
 
-    const agentNames = [
-      team.lead,
-      ...team.members.filter((m: string) => m !== team.lead),
-    ];
-    const agents = agentNames.map((name) => {
+    const agents = orderedMembers(team).map((name) => {
       const session = sessions.find((s) => s.agent_name === name);
       return {
         name,
@@ -317,37 +333,17 @@ export const sendTeamMessage = createServerFn({ method: 'POST' })
   .inputValidator((data: { teamId: string; content: string }) => data)
   .handler(async ({ data }) => {
     const { insertMessage } = await import('~/db/messages');
+    const { resetStuckSessions } = await import('~/db/sessions');
 
-    const [db, teams, cwd] = await Promise.all([
-      getDb(),
-      readTeams(await resolveCwd()),
-      resolveCwd(),
-    ]);
+    const cwd = await resolveCwd();
+    const [db, teams] = await Promise.all([getDb(), readTeams(cwd)]);
 
     // Reset any agents stuck in 'working' from a previous hung conversation
-    const { getSessionsByTeam, upsertSession: resetSession } = await import(
-      '~/db/sessions'
-    );
-    for (const session of getSessionsByTeam(db, data.teamId)) {
-      if (session.status === 'working') {
-        resetSession(
-          db,
-          data.teamId,
-          session.agent_name,
-          'idle',
-          undefined,
-          session.project_id ?? undefined,
-        );
-      }
-    }
+    resetStuckSessions(db, data.teamId);
 
-    const team = (teams as TeamMeta[]).find(
-      (t: TeamMeta) => t.name === data.teamId,
-    );
+    const team = teams.find((t) => t.name === data.teamId);
     const leadName = team?.lead ?? 'project-lead';
-    const allAgentNames = team
-      ? [team.lead, ...team.members.filter((m) => m !== team.lead)]
-      : [leadName];
+    const allAgentNames = team ? orderedMembers(team) : [leadName];
 
     // Insert the user message, recording any @mentions so the loop sees them
     const userMentions = parseMentions(data.content, allAgentNames);

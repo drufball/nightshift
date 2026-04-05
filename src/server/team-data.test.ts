@@ -101,14 +101,18 @@ describe('runConversationJudge', () => {
     mockCreate.mockReset();
   });
 
+  const judgePrompt = 'You are a routing judge.';
+
   it('returns valid agent names from a clean JSON response', async () => {
     mockCreate.mockResolvedValueOnce({
       content: [{ type: 'text', text: '{"next_responders":["alice","bob"]}' }],
     });
-    const result = await runConversationJudge(fakeMsgs, baseTeam, [
-      'alice',
-      'bob',
-    ]);
+    const result = await runConversationJudge(
+      fakeMsgs,
+      baseTeam,
+      ['alice', 'bob'],
+      judgePrompt,
+    );
     expect(result).toEqual(['alice', 'bob']);
   });
 
@@ -121,7 +125,12 @@ describe('runConversationJudge', () => {
         },
       ],
     });
-    const result = await runConversationJudge(fakeMsgs, baseTeam, ['alice']);
+    const result = await runConversationJudge(
+      fakeMsgs,
+      baseTeam,
+      ['alice'],
+      judgePrompt,
+    );
     expect(result).toEqual(['alice']);
   });
 
@@ -130,7 +139,7 @@ describe('runConversationJudge', () => {
       content: [{ type: 'text', text: 'not json at all' }],
     });
     await expect(
-      runConversationJudge(fakeMsgs, baseTeam, ['alice']),
+      runConversationJudge(fakeMsgs, baseTeam, ['alice'], judgePrompt),
     ).rejects.toThrow();
   });
 
@@ -139,7 +148,7 @@ describe('runConversationJudge', () => {
       content: [{ type: 'text', text: '{"responders":["alice"]}' }],
     });
     await expect(
-      runConversationJudge(fakeMsgs, baseTeam, ['alice']),
+      runConversationJudge(fakeMsgs, baseTeam, ['alice'], judgePrompt),
     ).rejects.toThrow('unexpected shape');
   });
 
@@ -152,10 +161,12 @@ describe('runConversationJudge', () => {
         },
       ],
     });
-    const result = await runConversationJudge(fakeMsgs, baseTeam, [
-      'alice',
-      'bob',
-    ]);
+    const result = await runConversationJudge(
+      fakeMsgs,
+      baseTeam,
+      ['alice', 'bob'],
+      judgePrompt,
+    );
     expect(result).toEqual(['alice']);
   });
 
@@ -163,11 +174,23 @@ describe('runConversationJudge', () => {
     mockCreate.mockResolvedValueOnce({
       content: [{ type: 'text', text: '{"next_responders":[]}' }],
     });
-    const result = await runConversationJudge(fakeMsgs, baseTeam, [
-      'alice',
-      'bob',
-    ]);
+    const result = await runConversationJudge(
+      fakeMsgs,
+      baseTeam,
+      ['alice', 'bob'],
+      judgePrompt,
+    );
     expect(result).toEqual([]);
+  });
+
+  it('passes the system prompt to the API', async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [{ type: 'text', text: '{"next_responders":[]}' }],
+    });
+    await runConversationJudge(fakeMsgs, baseTeam, ['alice'], 'custom prompt');
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ system: 'custom prompt' }),
+    );
   });
 });
 

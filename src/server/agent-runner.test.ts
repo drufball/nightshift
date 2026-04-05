@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import type { Message } from '~/db/messages';
-import { buildSystemPrompt, parseAgentMeta } from './agent-runner';
+import {
+  buildSystemPrompt,
+  formatToolStatus,
+  parseAgentMeta,
+  shouldFlushThinking,
+} from './agent-runner';
 
 // ---------------------------------------------------------------------------
 // parseAgentMeta
@@ -58,6 +63,77 @@ Line two.
 Line three.`;
     const meta = parseAgentMeta(content);
     expect(meta.systemPrompt).toBe('Line one.\nLine two.\nLine three.');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatToolStatus
+// ---------------------------------------------------------------------------
+
+describe('formatToolStatus', () => {
+  it('returns just the tool name when input is empty', () => {
+    expect(formatToolStatus('Read', {})).toBe('Read');
+  });
+
+  it('includes key: value pairs from input', () => {
+    expect(formatToolStatus('Read', { file_path: '/foo/bar.ts' })).toBe(
+      'Read file_path: /foo/bar.ts',
+    );
+  });
+
+  it('truncates string values longer than 100 chars', () => {
+    const long = 'a'.repeat(120);
+    const result = formatToolStatus('Write', { content: long });
+    expect(result).toContain('…');
+    expect(result.length).toBeLessThan(200);
+  });
+
+  it('filters out null, undefined, and empty string values', () => {
+    const result = formatToolStatus('Bash', {
+      command: 'ls',
+      description: '',
+      timeout: null as unknown as string,
+    });
+    expect(result).toBe('Bash command: ls');
+  });
+
+  it('summarises arrays up to 3 items with overflow count', () => {
+    const result = formatToolStatus('Grep', {
+      patterns: ['a', 'b', 'c', 'd', 'e'],
+    });
+    expect(result).toContain('a, b, c');
+    expect(result).toContain('(+2)');
+  });
+
+  it('joins multiple params with ". "', () => {
+    const result = formatToolStatus('Edit', {
+      file_path: '/foo.ts',
+      old_string: 'x',
+    });
+    expect(result).toBe('Edit file_path: /foo.ts. old_string: x');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldFlushThinking
+// ---------------------------------------------------------------------------
+
+describe('shouldFlushThinking', () => {
+  it('returns false when buffer has grown less than 150 chars since last flush', () => {
+    expect(shouldFlushThinking(100, 0)).toBe(false);
+  });
+
+  it('returns true at exactly 150 chars of new content', () => {
+    expect(shouldFlushThinking(150, 0)).toBe(true);
+  });
+
+  it('returns true when buffer has grown more than 150 chars', () => {
+    expect(shouldFlushThinking(200, 0)).toBe(true);
+  });
+
+  it('uses lastFlushAt as the baseline, not zero', () => {
+    expect(shouldFlushThinking(300, 200)).toBe(false); // only 100 new chars
+    expect(shouldFlushThinking(351, 200)).toBe(true); // 151 new chars
   });
 });
 

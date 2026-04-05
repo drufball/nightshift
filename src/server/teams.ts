@@ -6,6 +6,11 @@ export interface TeamMeta {
   members: string[];
 }
 
+/** Lead first, then remaining members in declaration order, no duplicates. */
+export function orderedMembers(team: TeamMeta): string[] {
+  return [team.lead, ...team.members.filter((m) => m !== team.lead)];
+}
+
 function parseTeamToml(content: string): TeamMeta {
   const name = content.match(/^name\s*=\s*"([^"]+)"/m)?.[1] ?? '';
   const lead = content.match(/^lead\s*=\s*"([^"]+)"/m)?.[1] ?? '';

@@ -87,6 +87,11 @@ function TeamPage() {
   const getAgentSessionFn = useServerFn(getAgentSession);
   const getMessagesFn = useServerFn(getLatestMessages);
 
+  // Derive the selected agent's status so the session-poll effect only
+  // re-runs when that specific value changes, not on every agents update.
+  const selectedAgentStatus =
+    agents.find((a) => a.name === selectedAgent)?.status ?? 'idle';
+
   // Poll agent statuses and messages while a send is in flight
   useEffect(() => {
     if (!sending) return;
@@ -124,12 +129,11 @@ function TeamPage() {
 
     fetchSession();
 
-    const agentStatus = agents.find((a) => a.name === selectedAgent)?.status;
-    if (agentStatus !== 'working') return;
+    if (selectedAgentStatus !== 'working') return;
 
     const id = setInterval(fetchSession, 2000);
     return () => clearInterval(id);
-  }, [selectedAgent, agents, teamId, getAgentSessionFn]);
+  }, [selectedAgent, selectedAgentStatus, teamId, getAgentSessionFn]);
 
   async function handleSend() {
     const content = input.trim();

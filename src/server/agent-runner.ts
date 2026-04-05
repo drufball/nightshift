@@ -1,4 +1,3 @@
-import type { Database } from '~/db/index';
 import type { Message } from '~/db/messages';
 
 export interface AgentMeta {
@@ -70,7 +69,7 @@ export function buildSystemPrompt(
   return parts.join('\n\n');
 }
 
-function formatToolStatus(
+export function formatToolStatus(
   toolName: string,
   input: Record<string, unknown>,
 ): string {
@@ -92,9 +91,18 @@ function formatToolStatus(
   return params ? `${toolName} ${params}` : toolName;
 }
 
+/**
+ * Returns true when enough new thinking text has accumulated to warrant a
+ * status update. Throttles DB writes to ~1 per 150 chars.
+ */
+export function shouldFlushThinking(
+  bufferLength: number,
+  lastFlushAt: number,
+): boolean {
+  return bufferLength - lastFlushAt >= 150;
+}
+
 export async function runAgent({
-  db,
-  teamId,
   agentName,
   userMessage,
   chatContext = [],
@@ -103,10 +111,10 @@ export async function runAgent({
   teamFolder,
   projectBranch,
   cwd,
-  projectId,
+  existingSdkSessionId,
+  onStatus,
+  onSessionId,
 }: {
-  db: Database;
-  teamId: string;
   agentName: string;
   userMessage: string;
   chatContext?: Message[];
@@ -115,16 +123,18 @@ export async function runAgent({
   teamFolder?: string;
   projectBranch?: string;
   cwd: string;
-  projectId?: string;
+  /** Pass an existing SDK session ID to resume a prior conversation. */
+  existingSdkSessionId?: string;
+  /** Called whenever the agent's status changes (tool use, thinking, idle). */
+  onStatus?: (status: 'idle' | 'working', statusText?: string) => void;
+  /** Called once with the new SDK session ID so callers can persist it. */
+  onSessionId?: (sessionId: string) => void;
 }): Promise<string> {
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
-  const { getSession, setSessionSdkId, upsertSession } = await import(
-    '~/db/sessions'
-  );
 
   const { join } = await import('node:path');
   const meta = await readAgentMeta(cwd, agentName);
-  const resolvedTeamName = teamName ?? teamId;
+  const resolvedTeamName = teamName ?? agentName;
   const resolvedTeamFolder =
     teamFolder ?? join('.nightshift', 'teams', resolvedTeamName);
   const systemPrompt = buildSystemPrompt(
@@ -136,10 +146,7 @@ export async function runAgent({
     projectBranch,
   );
 
-  const existing = getSession(db, teamId, agentName, projectId);
-  const sdkSessionId = existing?.sdk_session_id ?? undefined;
-
-  upsertSession(db, teamId, agentName, 'working', 'thinking...', projectId);
+  onStatus?.('working', 'thinking...');
 
   let result = '';
 
@@ -161,7 +168,9 @@ export async function runAgent({
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         includePartialMessages: true,
-        ...(sdkSessionId ? { resume: sdkSessionId } : { systemPrompt }),
+        ...(existingSdkSessionId
+          ? { resume: existingSdkSessionId }
+          : { systemPrompt }),
         hooks: {
           PreToolUse: [
             {
@@ -175,14 +184,7 @@ export async function runAgent({
                     toolInput.tool_name,
                     toolInput.tool_input ?? {},
                   );
-                  upsertSession(
-                    db,
-                    teamId,
-                    agentName,
-                    'working',
-                    status,
-                    projectId,
-                  );
+                  onStatus?.('working', status);
                   return {};
                 },
               ],
@@ -199,9 +201,9 @@ export async function runAgent({
       if (
         message.type === 'system' &&
         message.subtype === 'init' &&
-        !sdkSessionId
+        !existingSdkSessionId
       ) {
-        setSessionSdkId(db, teamId, agentName, message.session_id, projectId);
+        onSessionId?.(message.session_id);
       }
 
       // Parse streaming content blocks to surface thinking as live status
@@ -218,29 +220,14 @@ export async function runAgent({
           event.delta.thinking
         ) {
           thinkingBuffer += event.delta.thinking;
-          // Update status every ~150 chars to avoid flooding the DB
-          if (thinkingBuffer.length - thinkingUpdateAt >= 150) {
+          if (shouldFlushThinking(thinkingBuffer.length, thinkingUpdateAt)) {
             thinkingUpdateAt = thinkingBuffer.length;
-            upsertSession(
-              db,
-              teamId,
-              agentName,
-              'working',
-              thinkingBuffer,
-              projectId,
-            );
+            onStatus?.('working', thinkingBuffer);
           }
         }
 
         if (event?.type === 'content_block_stop' && thinkingBuffer) {
-          upsertSession(
-            db,
-            teamId,
-            agentName,
-            'working',
-            thinkingBuffer,
-            projectId,
-          );
+          onStatus?.('working', thinkingBuffer);
           thinkingBuffer = '';
           thinkingUpdateAt = 0;
         }
@@ -252,7 +239,7 @@ export async function runAgent({
       }
     }
   } finally {
-    upsertSession(db, teamId, agentName, 'idle', undefined, projectId);
+    onStatus?.('idle');
   }
 
   return result;

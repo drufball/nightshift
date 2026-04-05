@@ -99,6 +99,22 @@ export function getSession(
   );
 }
 
+/** Resets all sessions that are stuck in 'working' state back to 'idle'. */
+export function resetStuckSessions(db: Database, teamId: string): void {
+  for (const session of getSessionsByTeam(db, teamId)) {
+    if (session.status === 'working') {
+      upsertSession(
+        db,
+        teamId,
+        session.agent_name,
+        'idle',
+        undefined,
+        session.project_id ?? undefined,
+      );
+    }
+  }
+}
+
 export function getSessionsByTeam(
   db: Database,
   teamId: string,

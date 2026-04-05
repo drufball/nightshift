@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import appCss from '~/app.css?url';
+import { Button } from '~/components/ui/button';
 import { TooltipProvider } from '~/components/ui/tooltip';
 
 export const Route = createRootRoute({
@@ -23,14 +24,15 @@ function ThemeToggle() {
   }, [dark]);
 
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="sm"
       onClick={() => setDark((d) => !d)}
-      className="fixed top-3 right-4 z-50 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
+      className="fixed top-3 right-4 z-50 font-mono text-xs text-muted-foreground"
       aria-label="Toggle dark mode"
     >
       {dark ? 'light' : 'dark'}
-    </button>
+    </Button>
   );
 }
 
