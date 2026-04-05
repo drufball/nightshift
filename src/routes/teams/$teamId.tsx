@@ -33,6 +33,7 @@ import {
   type AgentSessionMessage,
   getAgentSession,
   getAgentStatuses,
+  getLatestMessages,
   getTeamView,
   sendTeamMessage,
 } from '~/server/team-data';
@@ -84,21 +85,26 @@ function TeamPage() {
   const sendFn = useServerFn(sendTeamMessage);
   const getStatusesFn = useServerFn(getAgentStatuses);
   const getAgentSessionFn = useServerFn(getAgentSession);
+  const getMessagesFn = useServerFn(getLatestMessages);
 
-  // Poll agent statuses while a message is being sent
+  // Poll agent statuses and messages while a send is in flight
   useEffect(() => {
     if (!sending) return;
     const id = setInterval(async () => {
-      const sessions = await getStatusesFn({ data: { teamId } });
+      const [sessions, freshMessages] = await Promise.all([
+        getStatusesFn({ data: { teamId } }),
+        getMessagesFn({ data: { teamId } }),
+      ]);
       setAgents((prev) =>
         prev.map((a) => {
           const s = sessions.find((s) => s.agent_name === a.name);
           return s ? { ...a, status: s.status, statusText: s.status_text } : a;
         }),
       );
-    }, 2000);
+      setMessages(freshMessages);
+    }, 1500);
     return () => clearInterval(id);
-  }, [sending, teamId, getStatusesFn]);
+  }, [sending, teamId, getStatusesFn, getMessagesFn]);
 
   // Poll session history while an agent is selected
   useEffect(() => {
@@ -143,10 +149,13 @@ function TeamPage() {
     setMessages((prev) => [...prev, userMsg]);
 
     try {
-      const { reply } = await sendFn({ data: { teamId, content } });
-      setMessages((prev) => [...prev, reply]);
-      // Refresh agent statuses after response
-      const sessions = await getStatusesFn({ data: { teamId } });
+      await sendFn({ data: { teamId, content } });
+      // Final sync: pick up any messages that arrived after the last poll
+      const [finalMessages, sessions] = await Promise.all([
+        getMessagesFn({ data: { teamId } }),
+        getStatusesFn({ data: { teamId } }),
+      ]);
+      setMessages(finalMessages);
       setAgents((prev) =>
         prev.map((a) => {
           const s = sessions.find((s) => s.agent_name === a.name);

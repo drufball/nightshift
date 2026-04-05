@@ -1,29 +1,73 @@
 import type { Database } from '~/db/index';
 import type { Message } from '~/db/messages';
 
-function parseSystemPrompt(markdownContent: string): string {
-  const match = markdownContent.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
-  return match ? match[1].trim() : markdownContent.trim();
+export interface AgentMeta {
+  name: string;
+  description: string;
+  systemPrompt: string;
+}
+
+export function parseAgentMeta(markdownContent: string): AgentMeta {
+  const frontmatterMatch = markdownContent.match(
+    /^---\n([\s\S]*?)\n---\n([\s\S]*)$/,
+  );
+  if (!frontmatterMatch) {
+    return { name: '', description: '', systemPrompt: markdownContent.trim() };
+  }
+  const frontmatter = frontmatterMatch[1];
+  const body = frontmatterMatch[2].trim();
+  const name = frontmatter.match(/^name:\s*(.+)$/m)?.[1]?.trim() ?? '';
+  const description =
+    frontmatter.match(/^description:\s*(.+)$/m)?.[1]?.trim() ?? '';
+  return { name, description, systemPrompt: body };
+}
+
+export async function readAgentMeta(
+  cwd: string,
+  agentName: string,
+): Promise<AgentMeta> {
+  const { readFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const agentPath = join(cwd, '.nightshift', 'agents', `${agentName}.md`);
+  const content = await readFile(agentPath, 'utf-8');
+  return parseAgentMeta(content);
 }
 
 function buildSystemPrompt(
   agentPrompt: string,
+  teamName: string,
+  teamFolder: string,
+  teamMembers: Array<{ name: string; description: string; isLead: boolean }>,
   chatContext: Message[],
+  projectBranch?: string,
 ): string {
-  if (chatContext.length === 0) return agentPrompt;
+  const parts: string[] = [agentPrompt];
 
-  const contextLines = chatContext
-    .map((m) => `${m.sender === 'user' ? 'User' : m.sender}: ${m.content}`)
+  const memberLines = teamMembers
+    .map(
+      (m) =>
+        `- **${m.name}**${m.isLead ? ' (lead)' : ''}: ${m.description || m.name}`,
+    )
     .join('\n');
 
-  return `${agentPrompt}
+  const projectLine = projectBranch
+    ? `\nCurrent project branch: \`${projectBranch}\``
+    : '';
 
----
+  parts.push(
+    `---\n\n## Your Team\n\nTeam: **${teamName}**\nTeam folder: \`${teamFolder}\`${projectLine}\n\nMembers — use @name to mention a teammate and ensure they respond next:\n\n${memberLines}\n\nMention \`@user\` when you need input from the human user before continuing.`,
+  );
 
-## Recent Team Chat
-The following messages were recently posted in the team chat. Use this as context for your work:
+  if (chatContext.length > 0) {
+    const contextLines = chatContext
+      .map((m) => `${m.sender === 'user' ? 'User' : m.sender}: ${m.content}`)
+      .join('\n');
+    parts.push(
+      `---\n\n## Recent Team Chat\n\nThe following messages were recently posted in the team chat. Use this as context for your work:\n\n${contextLines}`,
+    );
+  }
 
-${contextLines}`;
+  return parts.join('\n\n');
 }
 
 function formatToolStatus(
@@ -48,12 +92,16 @@ function formatToolStatus(
   return params ? `${toolName} ${params}` : toolName;
 }
 
-export async function runLeadAgent({
+export async function runAgent({
   db,
   teamId,
   agentName,
   userMessage,
   chatContext = [],
+  teamMembers = [],
+  teamName,
+  teamFolder,
+  projectBranch,
   cwd,
   projectId,
 }: {
@@ -62,21 +110,30 @@ export async function runLeadAgent({
   agentName: string;
   userMessage: string;
   chatContext?: Message[];
+  teamMembers?: Array<{ name: string; description: string; isLead: boolean }>;
+  teamName?: string;
+  teamFolder?: string;
+  projectBranch?: string;
   cwd: string;
   projectId?: string;
 }): Promise<string> {
-  const { readFile } = await import('node:fs/promises');
-  const { join } = await import('node:path');
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
   const { getSession, setSessionSdkId, upsertSession } = await import(
     '~/db/sessions'
   );
 
-  const agentPath = join(cwd, '.nightshift', 'agents', `${agentName}.md`);
-  const agentContent = await readFile(agentPath, 'utf-8');
+  const { join } = await import('node:path');
+  const meta = await readAgentMeta(cwd, agentName);
+  const resolvedTeamName = teamName ?? teamId;
+  const resolvedTeamFolder =
+    teamFolder ?? join('.nightshift', 'teams', resolvedTeamName);
   const systemPrompt = buildSystemPrompt(
-    parseSystemPrompt(agentContent),
+    meta.systemPrompt,
+    resolvedTeamName,
+    resolvedTeamFolder,
+    teamMembers,
     chatContext,
+    projectBranch,
   );
 
   const existing = getSession(db, teamId, agentName, projectId);
@@ -191,6 +248,7 @@ export async function runLeadAgent({
 
       if (message.type === 'result' && message.subtype === 'success') {
         result = message.result;
+        break; // stream won't always close cleanly; don't wait for it
       }
     }
   } finally {
