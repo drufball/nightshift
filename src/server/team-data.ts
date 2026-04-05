@@ -96,14 +96,19 @@ async function runConversationJudge(
       : '{}';
 
   // Strip markdown code fences if the model wrapped the JSON (e.g. ```json ... ```)
-  const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  const text = raw
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
 
   const parsed = JSON.parse(text); // throws on invalid JSON — caller handles it
   if (!Array.isArray(parsed.next_responders)) {
     throw new Error(`Judge returned unexpected shape: ${text}`);
   }
   // Only allow valid agent names
-  return (parsed.next_responders as string[]).filter((r) => allAgentNames.includes(r));
+  return (parsed.next_responders as string[]).filter((r) =>
+    allAgentNames.includes(r),
+  );
 }
 
 /**
@@ -160,13 +165,24 @@ async function runConversationLoop({
       // No @mentions — ask the judge
       let judgeResult: string[] = [];
       try {
-        judgeResult = await runConversationJudge(recentMessages, team, allAgentNames);
+        judgeResult = await runConversationJudge(
+          recentMessages,
+          team,
+          allAgentNames,
+        );
       } catch (err) {
         // Judge failed (API error, bad JSON, etc.) — fall back to the lead,
         // unless the lead just spoke (which would create a loop).
-        console.error('[nightshift] conversation judge failed, falling back to lead:', err);
+        console.error(
+          '[nightshift] conversation judge failed, falling back to lead:',
+          err,
+        );
         const lead = team.lead;
-        if (lastMessage.sender !== lead && !respondedAgents.has(lead) && allAgentNames.includes(lead)) {
+        if (
+          lastMessage.sender !== lead &&
+          !respondedAgents.has(lead) &&
+          allAgentNames.includes(lead)
+        ) {
           judgeResult = [lead];
         }
       }
