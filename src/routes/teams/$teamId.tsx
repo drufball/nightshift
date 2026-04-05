@@ -1,6 +1,7 @@
 import { Link, createFileRoute } from '@tanstack/react-router';
 import { useServerFn } from '@tanstack/react-start';
 import { useEffect, useRef, useState } from 'react';
+import Markdown from 'react-markdown';
 import { Badge } from '~/components/ui/badge';
 import {
   Breadcrumb,
@@ -359,7 +360,7 @@ function AgentSessionView({
         <h1 className="font-mono font-medium text-sm">{agentName}</h1>
         <span className="text-muted-foreground text-xs">session history</span>
         {sessionData?.status === 'working' && (
-          <span className="ml-auto text-xs text-muted-foreground font-mono animate-pulse">
+          <span className="ml-auto text-xs text-muted-foreground font-mono animate-pulse truncate max-w-[60%]">
             {sessionData.statusText ?? 'working…'}
           </span>
         )}
@@ -405,19 +406,28 @@ function SessionTurn({ msg }: { msg: AgentSessionMessage }) {
     return [];
   })();
 
+  // Skip tool-result-only user messages — these are just API round-trips, not chat
+  if (
+    isUser &&
+    blocks.length > 0 &&
+    blocks.every((b) => b.type === 'tool_result')
+  ) {
+    return null;
+  }
+
   if (blocks.length === 0) return null;
 
   return (
-    <div
-      className={cn(
-        'flex flex-col gap-1',
-        isUser ? 'items-end' : 'items-start',
-      )}
-    >
-      <span className="text-xs text-muted-foreground font-mono">
+    <div className="flex flex-col gap-1">
+      <span
+        className={cn(
+          'text-xs font-mono font-bold',
+          isUser ? 'text-primary' : 'text-secondary',
+        )}
+      >
         {isUser ? 'you' : role}
       </span>
-      <div className="flex flex-col gap-1 max-w-[80%]">
+      <div className="flex flex-col gap-1">
         {blocks.map((block, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: blocks within a message are stable and have no unique IDs
           <SessionBlock key={i} block={block} isUser={isUser} />
@@ -437,15 +447,8 @@ function SessionBlock({
   if (block.type === 'text') {
     const text = block as { type: 'text'; text: string };
     return (
-      <div
-        className={cn(
-          'rounded-lg px-3 py-2 text-sm whitespace-pre-wrap',
-          isUser
-            ? 'bg-primary text-primary-foreground'
-            : 'bg-muted text-foreground',
-        )}
-      >
-        {text.text}
+      <div className="prose prose-sm dark:prose-invert max-w-none text-sm text-foreground">
+        <Markdown>{text.text}</Markdown>
       </div>
     );
   }
@@ -453,10 +456,8 @@ function SessionBlock({
   if (block.type === 'thinking') {
     const thinking = block as { type: 'thinking'; thinking: string };
     return (
-      <details className="text-xs text-muted-foreground border rounded-md px-3 py-1">
-        <summary className="cursor-pointer font-mono select-none">
-          thinking
-        </summary>
+      <details className="text-xs text-muted-foreground/50 font-mono">
+        <summary className="cursor-pointer select-none">thinking</summary>
         <p className="mt-1 whitespace-pre-wrap">{thinking.thinking}</p>
       </details>
     );
@@ -465,63 +466,33 @@ function SessionBlock({
   if (block.type === 'tool_use') {
     const tool = block as { type: 'tool_use'; name: string; input: unknown };
     return (
-      <div className="rounded-md border px-3 py-2 font-mono text-xs text-muted-foreground">
-        <span className="font-medium text-foreground">{tool.name}</span>
+      <details className="text-xs text-muted-foreground/50 font-mono">
+        <summary className="cursor-pointer select-none">{tool.name}</summary>
         <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-all">
           {JSON.stringify(tool.input, null, 2)}
         </pre>
-      </div>
+      </details>
     );
   }
 
-  if (block.type === 'tool_result') {
-    const content = block.content;
-    const text =
-      typeof content === 'string'
-        ? content
-        : Array.isArray(content)
-          ? content
-              .map((c: unknown) =>
-                typeof c === 'object' &&
-                c !== null &&
-                'text' in c &&
-                typeof (c as { text: unknown }).text === 'string'
-                  ? (c as { text: string }).text
-                  : '',
-              )
-              .join('\n')
-          : JSON.stringify(content, null, 2);
-    return (
-      <pre className="rounded-md bg-muted px-3 py-2 font-mono text-xs whitespace-pre-wrap break-all overflow-x-auto max-h-48">
-        {text}
-      </pre>
-    );
-  }
-
+  // tool_result blocks are filtered at the turn level; skip here
   return null;
 }
 
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.sender === 'user';
   return (
-    <div
-      className={cn(
-        'flex flex-col gap-1',
-        isUser ? 'items-end' : 'items-start',
-      )}
-    >
-      <span className="text-xs text-muted-foreground font-mono">
-        {isUser ? 'you' : message.sender}
-      </span>
-      <div
+    <div className="flex flex-col gap-0.5">
+      <span
         className={cn(
-          'rounded-lg px-3 py-2 text-sm max-w-[70%]',
-          isUser
-            ? 'bg-primary text-primary-foreground'
-            : 'bg-muted text-muted-foreground',
+          'text-xs font-mono font-bold',
+          isUser ? 'text-primary' : 'text-secondary',
         )}
       >
-        {message.content}
+        {isUser ? 'you' : message.sender}
+      </span>
+      <div className="prose prose-sm dark:prose-invert max-w-none text-sm text-foreground">
+        <Markdown>{message.content}</Markdown>
       </div>
     </div>
   );

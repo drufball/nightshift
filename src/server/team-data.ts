@@ -66,11 +66,15 @@ export const sendTeamMessage = createServerFn({ method: 'POST' })
     );
     const leadName = team?.lead ?? 'project-lead';
 
+    const { getTeamMessages } = await import('~/db/messages');
+    const recentMessages = getTeamMessages(db, data.teamId).slice(-20);
+
     const responseText = await runLeadAgent({
       db,
       teamId: data.teamId,
       agentName: leadName,
       userMessage: data.content,
+      chatContext: recentMessages,
       cwd,
     });
 

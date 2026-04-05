@@ -47,6 +47,9 @@ export async function readTeams(cwd: string): Promise<TeamMeta[]> {
 }
 
 export async function resolveCwd(): Promise<string> {
+  if (process.env.NIGHTSHIFT_PROJECT_DIR) {
+    return process.env.NIGHTSHIFT_PROJECT_DIR;
+  }
   const { execFileSync } = await import('node:child_process');
   return execFileSync('git', ['rev-parse', '--show-toplevel'], {
     stdio: 'pipe',

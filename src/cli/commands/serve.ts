@@ -10,9 +10,11 @@ export function registerServe(program: Command): void {
       // Resolve the package root from this file's location: src/cli/commands/ -> ../../..
       const packageRoot = join(import.meta.dir, '..', '..', '..');
 
+      const projectDir = process.cwd();
       const child = spawn('bun', ['--bun', 'run', 'vite', 'dev'], {
         cwd: packageRoot,
         stdio: 'inherit',
+        env: { ...process.env, NIGHTSHIFT_PROJECT_DIR: projectDir },
       });
 
       child.on('error', (err) => {
