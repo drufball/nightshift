@@ -33,7 +33,7 @@ export async function readAgentMeta(
   return parseAgentMeta(content);
 }
 
-function buildSystemPrompt(
+export function buildSystemPrompt(
   agentPrompt: string,
   teamName: string,
   teamFolder: string,

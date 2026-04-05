@@ -18,7 +18,9 @@ const AGENT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 /** Extract @name mentions from message content, matched against known names. */
 export function parseMentions(content: string, knownNames: string[]): string[] {
-  return knownNames.filter((name) => content.includes(`@${name}`));
+  return knownNames.filter((name) =>
+    new RegExp(`@${name}(?![\\w-])`).test(content),
+  );
 }
 
 /** Returns true if the content @mentions the user, signalling conversation pause. */
@@ -59,7 +61,7 @@ async function readTeamMemberMeta(
  * Uses conversation-timing.spec.md as its live system prompt — edit that file
  * to tune routing behavior without touching code.
  */
-async function runConversationJudge(
+export async function runConversationJudge(
   messages: Message[],
   team: TeamMeta,
   allAgentNames: string[],
@@ -122,13 +124,14 @@ async function runConversationJudge(
  * The loop stops when @user is mentioned, the judge returns [], or we hit
  * the turn limit.
  */
-async function runConversationLoop({
+export async function runConversationLoop({
   db,
   teamId,
   team,
   cwd,
   teamMemberMeta,
   projectBranch,
+  runAgentFn,
 }: {
   db: import('~/db/index').Database;
   teamId: string;
@@ -136,8 +139,22 @@ async function runConversationLoop({
   cwd: string;
   teamMemberMeta: Array<{ name: string; description: string; isLead: boolean }>;
   projectBranch?: string;
+  /** Injectable for tests — defaults to the real runAgent when omitted. */
+  runAgentFn?: (opts: {
+    db: import('~/db/index').Database;
+    teamId: string;
+    agentName: string;
+    userMessage: string;
+    chatContext?: Message[];
+    teamMembers?: Array<{ name: string; description: string; isLead: boolean }>;
+    teamName?: string;
+    teamFolder?: string;
+    projectBranch?: string;
+    cwd: string;
+    projectId?: string;
+  }) => Promise<string>;
 }): Promise<void> {
-  const { runAgent } = await import('./agent-runner');
+  const runAgent = runAgentFn ?? (await import('./agent-runner')).runAgent;
   const { join } = await import('node:path');
   const { insertMessage, getTeamMessages } = await import('~/db/messages');
 
