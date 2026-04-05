@@ -6,6 +6,11 @@ export interface TeamMeta {
   members: string[];
 }
 
+/** Lead first, then remaining members in declaration order, no duplicates. */
+export function orderedMembers(team: TeamMeta): string[] {
+  return [team.lead, ...team.members.filter((m) => m !== team.lead)];
+}
+
 function parseTeamToml(content: string): TeamMeta {
   const name = content.match(/^name\s*=\s*"([^"]+)"/m)?.[1] ?? '';
   const lead = content.match(/^lead\s*=\s*"([^"]+)"/m)?.[1] ?? '';
@@ -47,6 +52,9 @@ export async function readTeams(cwd: string): Promise<TeamMeta[]> {
 }
 
 export async function resolveCwd(): Promise<string> {
+  if (process.env.NIGHTSHIFT_PROJECT_DIR) {
+    return process.env.NIGHTSHIFT_PROJECT_DIR;
+  }
   const { execFileSync } = await import('node:child_process');
   return execFileSync('git', ['rev-parse', '--show-toplevel'], {
     stdio: 'pipe',

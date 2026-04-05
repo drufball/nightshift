@@ -8,7 +8,12 @@ import {
   insertProject,
   markProjectMerged,
 } from './projects';
-import { getSessionsByTeam, upsertSession } from './sessions';
+import {
+  getSession,
+  getSessionsByTeam,
+  setSessionSdkId,
+  upsertSession,
+} from './sessions';
 
 let db: Database;
 
@@ -115,6 +120,35 @@ describe('agent_sessions', () => {
     expect(sessions).toHaveLength(1);
     expect(sessions[0].status).toBe('working');
     expect(sessions[0].status_text).toBe('writing tests');
+  });
+
+  it('getSession returns the matching session', () => {
+    upsertSession(db, 'feature-team', 'project-lead', 'working', 'thinking');
+    const session = getSession(db, 'feature-team', 'project-lead');
+    expect(session).not.toBeNull();
+    expect(session?.agent_name).toBe('project-lead');
+    expect(session?.status).toBe('working');
+  });
+
+  it('getSession returns null when no matching session', () => {
+    const session = getSession(db, 'feature-team', 'nonexistent');
+    expect(session).toBeNull();
+  });
+
+  it('setSessionSdkId stores and retrieves the sdk_session_id', () => {
+    upsertSession(db, 'feature-team', 'project-lead', 'working');
+    setSessionSdkId(db, 'feature-team', 'project-lead', 'sdk-abc-123');
+    const session = getSession(db, 'feature-team', 'project-lead');
+    expect(session?.sdk_session_id).toBe('sdk-abc-123');
+  });
+
+  it('setSessionSdkId does not clear sdk_session_id on subsequent upsertSession calls', () => {
+    upsertSession(db, 'feature-team', 'project-lead', 'working');
+    setSessionSdkId(db, 'feature-team', 'project-lead', 'sdk-abc-123');
+    upsertSession(db, 'feature-team', 'project-lead', 'idle');
+    const session = getSession(db, 'feature-team', 'project-lead');
+    expect(session?.sdk_session_id).toBe('sdk-abc-123');
+    expect(session?.status).toBe('idle');
   });
 
   it('scopes sessions to project when projectId provided', () => {
