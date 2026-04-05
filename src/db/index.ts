@@ -26,5 +26,11 @@ export function openDb(dbPath: string): Database {
   const db = new Database(dbPath);
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec(CREATE_TABLES);
+  // Migrations for columns added after initial schema
+  try {
+    db.exec('ALTER TABLE agent_sessions ADD COLUMN sdk_session_id TEXT;');
+  } catch {
+    // Column already exists — safe to ignore
+  }
   return db;
 }

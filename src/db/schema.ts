@@ -22,12 +22,13 @@ CREATE INDEX IF NOT EXISTS idx_messages_team
   ON messages (team_id, project_id, created_at);
 
 CREATE TABLE IF NOT EXISTS agent_sessions (
-  id          TEXT PRIMARY KEY,
-  team_id     TEXT NOT NULL,
-  project_id  TEXT,
-  agent_name  TEXT NOT NULL,
-  status      TEXT NOT NULL DEFAULT 'idle',
-  status_text TEXT,
-  updated_at  INTEGER NOT NULL
+  id              TEXT PRIMARY KEY,
+  team_id         TEXT NOT NULL,
+  project_id      TEXT,
+  agent_name      TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'idle',
+  status_text     TEXT,
+  sdk_session_id  TEXT,
+  updated_at      INTEGER NOT NULL
 );
 `;

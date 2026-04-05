@@ -6,15 +6,13 @@
 - **Web app:** TanStack Start (SSR) + React 19, built with Vite — entry at `src/routes/`
 - **CLI:** Commander — entry at `src/cli/index.ts`, symlinked to `/usr/local/bin/nightshift-dev`
 - **UI components:** shadcn/ui — design system lives in `src/components/ui/`
-- **Lint/format:** Biome
-
-## Design system
-
-All UI work must heavily favour reuse from the design system at `src/components/ui/`. Before building any new UI element, check whether a shadcn component already covers the need. Compose from existing primitives rather than writing custom markup.
+- **DB:** bun:sqlite. List `src/db/` to see available tables.
 
 ## Development approach
 
 Always use red/green TDD: write a failing test first, confirm it fails, then implement.
+
+All UI work must heavily favour reuse from the design system at `src/components/ui/`. Before building any new UI element, check whether a shadcn component already covers the need. Compose from existing primitives rather than writing custom markup.
 
 ## Testing & lint
 
