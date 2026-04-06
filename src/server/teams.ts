@@ -66,3 +66,16 @@ export async function resolveCwd(): Promise<string> {
 export const listTeams = createServerFn({ method: 'GET' }).handler(async () =>
   readTeams(await resolveCwd()),
 );
+
+export const createTeam = createServerFn({ method: 'POST' })
+  .inputValidator((data: { name: string }) => data)
+  .handler(async ({ data }) => {
+    const { writeFile, mkdir } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    const cwd = await resolveCwd();
+    const teamDir = join(cwd, '.nightshift', 'teams', data.name);
+    await mkdir(teamDir, { recursive: true });
+    const toml = `name = "${data.name}"\nlead = ""\nmembers = []\n`;
+    await writeFile(join(teamDir, 'team.toml'), toml, 'utf8');
+    return { name: data.name, lead: '', members: [] } satisfies TeamMeta;
+  });

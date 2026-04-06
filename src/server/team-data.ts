@@ -139,6 +139,7 @@ export async function runConversationLoop({
   cwd,
   teamMemberMeta,
   projectBranch,
+  projectId,
   runAgentFn,
 }: {
   db: import('~/db/index').Database;
@@ -147,28 +148,45 @@ export async function runConversationLoop({
   cwd: string;
   teamMemberMeta: Array<{ name: string; description: string; isLead: boolean }>;
   projectBranch?: string;
+  /** When set, sessions and messages are scoped to this project rather than the team. */
+  projectId?: string;
   /** Injectable for tests — defaults to the real runAgent when omitted. */
   runAgentFn?: RunAgentFn;
 }): Promise<void> {
   const { join } = await import('node:path');
-  const { insertMessage, getTeamMessages } = await import('~/db/messages');
+  const { insertMessage, getTeamMessages, getProjectMessages } = await import(
+    '~/db/messages'
+  );
   const { getSession, setSessionSdkId, upsertSession } = await import(
     '~/db/sessions'
   );
+
+  /** Fetch the most recent messages in the right scope (team or project). */
+  const getRecentMessages = () =>
+    projectId
+      ? getProjectMessages(db, projectId).slice(-20)
+      : getTeamMessages(db, teamId).slice(-20);
 
   // Build the default runAgent wrapper that handles DB status persistence.
   // Tests override this entirely via runAgentFn.
   const { runAgent } = await import('./agent-runner');
   const defaultRunAgent: RunAgentFn = (opts) => {
-    const existing = getSession(db, teamId, opts.agentName);
+    const existing = getSession(db, teamId, opts.agentName, projectId);
     return runAgent({
       ...opts,
       existingSdkSessionId: existing?.sdk_session_id ?? undefined,
       onStatus: (status, statusText) => {
-        upsertSession(db, teamId, opts.agentName, status, statusText);
+        upsertSession(
+          db,
+          teamId,
+          opts.agentName,
+          status,
+          statusText,
+          projectId,
+        );
       },
       onSessionId: (sessionId) => {
-        setSessionSdkId(db, teamId, opts.agentName, sessionId);
+        setSessionSdkId(db, teamId, opts.agentName, sessionId, projectId);
       },
     });
   };
@@ -188,7 +206,7 @@ export async function runConversationLoop({
   let totalTurns = 0;
 
   while (totalTurns < MAX_AGENT_TURNS) {
-    const recentMessages = getTeamMessages(db, teamId).slice(-20);
+    const recentMessages = getRecentMessages();
     const lastMessage = recentMessages[recentMessages.length - 1];
     if (!lastMessage) break;
 
@@ -241,7 +259,7 @@ export async function runConversationLoop({
       totalTurns++;
       respondedAgents.add(agentName);
 
-      const chatContext = getTeamMessages(db, teamId).slice(-20);
+      const chatContext = getRecentMessages();
       const triggerContent = chatContext[chatContext.length - 1]?.content ?? '';
 
       let responseText: string;
@@ -272,7 +290,7 @@ export async function runConversationLoop({
       } catch (err) {
         console.error(`[nightshift] agent ${agentName} failed:`, err);
         // Force the session idle in case runAgent's finally block never ran
-        upsertSession(db, teamId, agentName, 'idle', undefined);
+        upsertSession(db, teamId, agentName, 'idle', undefined, projectId);
         break;
       }
 
@@ -282,7 +300,7 @@ export async function runConversationLoop({
         teamId,
         agentName,
         responseText,
-        undefined,
+        projectId,
         mentionedAgents,
       );
 
@@ -372,11 +390,69 @@ export const sendTeamMessage = createServerFn({ method: 'POST' })
   });
 
 export const getAgentStatuses = createServerFn({ method: 'GET' })
-  .inputValidator((data: { teamId: string }) => data)
+  .inputValidator((data: { teamId: string; projectId?: string }) => data)
   .handler(async ({ data }) => {
     const { getSessionsByTeam } = await import('~/db/sessions');
     const db = await getDb();
-    return getSessionsByTeam(db, data.teamId);
+    return getSessionsByTeam(db, data.teamId, data.projectId);
+  });
+
+export const getProjectMessages = createServerFn({ method: 'GET' })
+  .inputValidator((data: { teamId: string; projectId: string }) => data)
+  .handler(async ({ data }) => {
+    const { getProjectMessages: getProjectMsgs } = await import(
+      '~/db/messages'
+    );
+    const db = await getDb();
+    return getProjectMsgs(db, data.projectId);
+  });
+
+export const sendProjectMessage = createServerFn({ method: 'POST' })
+  .inputValidator(
+    (data: { teamId: string; projectId: string; content: string }) => data,
+  )
+  .handler(async ({ data }) => {
+    const { insertMessage } = await import('~/db/messages');
+    const { resetStuckSessions } = await import('~/db/sessions');
+    const { getProjectsByTeam } = await import('~/db/projects');
+
+    const cwd = await resolveCwd();
+    const [db, teams] = await Promise.all([getDb(), readTeams(cwd)]);
+
+    resetStuckSessions(db, data.teamId, data.projectId);
+
+    const team = teams.find((t) => t.name === data.teamId);
+    const leadName = team?.lead ?? 'project-lead';
+    const allAgentNames = team ? orderedMembers(team) : [leadName];
+
+    const userMentions = parseMentions(data.content, allAgentNames);
+    insertMessage(
+      db,
+      data.teamId,
+      'user',
+      data.content,
+      data.projectId,
+      userMentions,
+    );
+
+    const project = getProjectsByTeam(db, data.teamId).find(
+      (p) => p.id === data.projectId,
+    );
+    const teamMemberMeta = team
+      ? await readTeamMemberMeta(cwd, team)
+      : [{ name: leadName, description: '', isLead: true }];
+
+    await runConversationLoop({
+      db,
+      teamId: data.teamId,
+      team: team ?? { name: data.teamId, lead: leadName, members: [] },
+      cwd,
+      teamMemberMeta,
+      projectBranch: project?.branch,
+      projectId: data.projectId,
+    });
+
+    return { ok: true };
   });
 
 export const getAgentSession = createServerFn({ method: 'GET' })
@@ -408,4 +484,17 @@ export const getAgentSession = createServerFn({ method: 'GET' })
       status: session.status,
       statusText: session.status_text,
     };
+  });
+
+export const createNewProject = createServerFn({ method: 'POST' })
+  .inputValidator((data: { teamId: string; name: string }) => data)
+  .handler(async ({ data }) => {
+    const { insertProject } = await import('~/db/projects');
+    const db = await getDb();
+    const branch =
+      data.name
+        .toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9-]/g, '') || 'new-project';
+    return insertProject(db, data.name, data.teamId, branch);
   });
