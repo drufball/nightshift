@@ -2,9 +2,100 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { Breadcrumb, type ViewState } from './$teamId';
+import { Breadcrumb, type ViewState, applySessionsToAgents } from './$teamId';
 
 afterEach(cleanup);
+
+// ── applySessionsToAgents ──────────────────────────────────────────────────
+
+describe('applySessionsToAgents', () => {
+  const baseAgents = [
+    { name: 'aria', isLead: true, status: 'idle' as const, statusText: null },
+    { name: 'bob', isLead: false, status: 'idle' as const, statusText: null },
+  ];
+
+  it('returns agents unchanged when sessions array is empty', () => {
+    const result = applySessionsToAgents(baseAgents, []);
+    expect(result).toEqual(baseAgents);
+  });
+
+  it('applies status and statusText from matching session', () => {
+    const sessions = [
+      {
+        id: '1',
+        team_id: 'team',
+        project_id: null,
+        agent_name: 'aria',
+        status: 'working' as const,
+        status_text: 'running tests',
+        sdk_session_id: null,
+        updated_at: 0,
+      },
+    ];
+    const result = applySessionsToAgents(baseAgents, sessions);
+    expect(result[0]).toEqual({
+      name: 'aria',
+      isLead: true,
+      status: 'working',
+      statusText: 'running tests',
+    });
+    // bob has no session — should remain unchanged
+    expect(result[1]).toEqual(baseAgents[1]);
+  });
+
+  it('leaves agent unchanged when no session matches its name', () => {
+    const sessions = [
+      {
+        id: '1',
+        team_id: 'team',
+        project_id: null,
+        agent_name: 'unknown-agent',
+        status: 'working' as const,
+        status_text: null,
+        sdk_session_id: null,
+        updated_at: 0,
+      },
+    ];
+    const result = applySessionsToAgents(baseAgents, sessions);
+    expect(result).toEqual(baseAgents);
+  });
+
+  it('handles null status_text correctly (statusText becomes null)', () => {
+    const sessions = [
+      {
+        id: '1',
+        team_id: 'team',
+        project_id: null,
+        agent_name: 'bob',
+        status: 'working' as const,
+        status_text: null,
+        sdk_session_id: null,
+        updated_at: 0,
+      },
+    ];
+    const result = applySessionsToAgents(baseAgents, sessions);
+    expect(result[1].status).toBe('working');
+    expect(result[1].statusText).toBeNull();
+  });
+
+  it('does not mutate the original agents array', () => {
+    const sessions = [
+      {
+        id: '1',
+        team_id: 'team',
+        project_id: null,
+        agent_name: 'aria',
+        status: 'working' as const,
+        status_text: 'busy',
+        sdk_session_id: null,
+        updated_at: 0,
+      },
+    ];
+    const original = [...baseAgents];
+    applySessionsToAgents(baseAgents, sessions);
+    expect(baseAgents).toEqual(original);
+  });
+});
 
 // ── Mention regex ──────────────────────────────────────────────────────────
 

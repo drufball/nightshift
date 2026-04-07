@@ -6,6 +6,7 @@ import Markdown from 'react-markdown';
 import { Separator } from '~/components/ui/separator';
 import type { Message } from '~/db/messages';
 import type { Project } from '~/db/projects';
+import type { AgentSession } from '~/db/sessions';
 import { cn } from '~/lib/utils';
 import {
   type AgentSessionMessage,
@@ -135,6 +136,17 @@ const markdownComponents = {
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+/** Pure helper: merge the latest session statuses into the agent list. */
+export function applySessionsToAgents(
+  agents: AgentInfo[],
+  sessions: AgentSession[],
+): AgentInfo[] {
+  return agents.map((a) => {
+    const s = sessions.find((s) => s.agent_name === a.name);
+    return s ? { ...a, status: s.status, statusText: s.status_text } : a;
+  });
+}
 
 function flattenSessionBlocks(messages: AgentSessionMessage[]): NavBlock[] {
   const result: NavBlock[] = [];
@@ -317,12 +329,7 @@ function TeamPage() {
         getStatusesFn({ data: { teamId } }),
         getMessagesFn({ data: { teamId } }),
       ]);
-      setAgents((prev) =>
-        prev.map((a) => {
-          const s = sessions.find((s) => s.agent_name === a.name);
-          return s ? { ...a, status: s.status, statusText: s.status_text } : a;
-        }),
-      );
+      setAgents((prev) => applySessionsToAgents(prev, sessions));
       setMessages(freshMessages);
     }, 1500);
     return () => clearInterval(id);
@@ -336,12 +343,7 @@ function TeamPage() {
         getStatusesFn({ data: { teamId, projectId } }),
         getProjectMsgsFn({ data: { teamId, projectId } }),
       ]);
-      setAgents((prev) =>
-        prev.map((a) => {
-          const s = sessions.find((s) => s.agent_name === a.name);
-          return s ? { ...a, status: s.status, statusText: s.status_text } : a;
-        }),
-      );
+      setAgents((prev) => applySessionsToAgents(prev, sessions));
       setProjectMessages(freshMsgs as Message[]);
     }, 1500);
     return () => clearInterval(id);
@@ -418,12 +420,7 @@ function TeamPage() {
         getStatusesFn({ data: { teamId } }),
       ]);
       setMessages(finalMessages);
-      setAgents((prev) =>
-        prev.map((a) => {
-          const s = sessions.find((s) => s.agent_name === a.name);
-          return s ? { ...a, status: s.status, statusText: s.status_text } : a;
-        }),
-      );
+      setAgents((prev) => applySessionsToAgents(prev, sessions));
     } finally {
       setSending(false);
     }
@@ -448,12 +445,7 @@ function TeamPage() {
         getStatusesFn({ data: { teamId } }),
       ]);
       setProjectMessages(finalMsgs as Message[]);
-      setAgents((prev) =>
-        prev.map((a) => {
-          const s = sessions.find((s) => s.agent_name === a.name);
-          return s ? { ...a, status: s.status, statusText: s.status_text } : a;
-        }),
-      );
+      setAgents((prev) => applySessionsToAgents(prev, sessions));
     } finally {
       setProjectSending(false);
     }
