@@ -249,4 +249,31 @@ describe('buildSystemPrompt', () => {
     );
     expect(result).toContain('@user');
   });
+
+  it('labels chat context as "Recent Project Chat" when projectBranch is provided', () => {
+    const messages = [makeMsg('user', 'Hello project')];
+    const result = buildSystemPrompt(
+      'Prompt.',
+      'my-team',
+      '.nightshift/teams/my-team',
+      teamMembers,
+      messages,
+      'feature/my-branch',
+    );
+    expect(result).toContain('Recent Project Chat');
+    expect(result).not.toContain('Recent Team Chat');
+  });
+
+  it('labels chat context as "Recent Team Chat" when no projectBranch', () => {
+    const messages = [makeMsg('user', 'Hello team')];
+    const result = buildSystemPrompt(
+      'Prompt.',
+      'my-team',
+      '.nightshift/teams/my-team',
+      teamMembers,
+      messages,
+    );
+    expect(result).toContain('Recent Team Chat');
+    expect(result).not.toContain('Recent Project Chat');
+  });
 });

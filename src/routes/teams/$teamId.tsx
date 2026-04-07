@@ -42,7 +42,12 @@ type SessionData = {
 export type ViewState =
   | { type: 'chat' }
   | { type: 'project-chat'; projectId: string; projectName: string }
-  | { type: 'agent-session'; agentName: string };
+  | {
+      type: 'agent-session';
+      agentName: string;
+      projectId?: string;
+      projectName?: string;
+    };
 
 type OverlayState =
   | { kind: 'projects'; cursor: number }
@@ -94,9 +99,14 @@ export function Breadcrumb({
       );
     case 'agent-session':
       return (
-        <span className="text-primary">
-          ~/{teamId}/{view.agentName}
-        </span>
+        <>
+          <span className="text-primary">
+            ~/{teamId}/{view.agentName}
+          </span>
+          {view.projectId && (
+            <span className="text-secondary ml-1">(project)</span>
+          )}
+        </>
       );
   }
 }
@@ -318,9 +328,11 @@ function TeamPage() {
 
   useEffect(() => {
     if (view.type !== 'agent-session') return;
-    const { agentName } = view;
+    const { agentName, projectId } = view;
     async function fetchSession() {
-      const data = await getAgentSessionFn({ data: { teamId, agentName } });
+      const data = await getAgentSessionFn({
+        data: { teamId, agentName, projectId },
+      });
       setSessionData(data as SessionData);
       setTimeout(
         () => bottomRef.current?.scrollIntoView({ behavior: 'instant' }),
@@ -521,6 +533,15 @@ function TeamPage() {
           if (currentView.type === 'chat') {
             navigate({ to: '/' });
           } else if (
+            currentView.type === 'agent-session' &&
+            currentView.projectId
+          ) {
+            setView({
+              type: 'project-chat',
+              projectId: currentView.projectId,
+              projectName: currentView.projectName ?? '',
+            });
+          } else if (
             currentView.type === 'project-chat' ||
             currentView.type === 'agent-session'
           ) {
@@ -681,7 +702,11 @@ function TeamPage() {
       if (e.key === 'Enter' && !e.shiftKey) {
         const ag = filtered[overlay.cursor];
         if (ag) {
-          setView({ type: 'agent-session', agentName: ag.name });
+          const projectCtx =
+            'projectId' in view
+              ? { projectId: view.projectId, projectName: view.projectName }
+              : {};
+          setView({ type: 'agent-session', agentName: ag.name, ...projectCtx });
           setSessionData(null);
           setFocusedIdx(-1);
           closePicker();
@@ -846,7 +871,18 @@ function TeamPage() {
                 closePicker();
               }}
               onSelectAgent={(ag) => {
-                setView({ type: 'agent-session', agentName: ag.name });
+                const projectCtx =
+                  'projectId' in view
+                    ? {
+                        projectId: view.projectId,
+                        projectName: view.projectName,
+                      }
+                    : {};
+                setView({
+                  type: 'agent-session',
+                  agentName: ag.name,
+                  ...projectCtx,
+                });
                 setSessionData(null);
                 setFocusedIdx(-1);
                 closePicker();
