@@ -1,62 +1,66 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { useServerFn } from '@tanstack/react-start';
+import type React from 'react';
 import { useState } from 'react';
-import { CommandPicker } from '~/components/command-picker';
 import { Separator } from '~/components/ui/separator';
-import type { TeamMeta } from '~/server/teams';
-import { createTeam, getHomeTeam, listTeams } from '~/server/teams';
+import {
+  createTeam,
+  getHomeTeam,
+  listTeams,
+  resolveStartTeam,
+} from '~/server/teams';
 
 export const Route = createFileRoute('/')({
   loader: async () => {
-    const homeTeam = await getHomeTeam();
-    if (homeTeam) {
-      throw redirect({ to: '/teams/$teamId', params: { teamId: homeTeam } });
+    const [homeTeam, teams] = await Promise.all([getHomeTeam(), listTeams()]);
+    const startTeam = resolveStartTeam(homeTeam, teams);
+    if (startTeam) {
+      throw redirect({ to: '/teams/$teamId', params: { teamId: startTeam } });
     }
-    return listTeams();
+    // No teams exist — show create flow
+    return null;
   },
-  component: TeamsPage,
+  component: CreateTeamPage,
 });
 
-function TeamsPage() {
-  const [teams, setTeams] = useState<TeamMeta[]>(Route.useLoaderData());
+function CreateTeamPage() {
   const navigate = useNavigate();
   const createTeamFn = useServerFn(createTeam);
+  const [name, setName] = useState('');
+
+  async function handleCreate() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const team = await createTeamFn({ data: { name: trimmed } });
+    navigate({ to: '/teams/$teamId', params: { teamId: team.name } });
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      handleCreate();
+      e.preventDefault();
+    }
+  }
 
   return (
     <div className="flex flex-col h-screen bg-background overflow-hidden font-mono">
-      {/* Empty content area pushes picker to the bottom */}
       <div className="flex-1" />
-
-      {/* Picker floats above the footer separator */}
       <div className="relative shrink-0">
         <div className="absolute bottom-full inset-x-0 z-50 bg-background border border-border/50 shadow-lg">
-          {teams.length === 0 ? (
-            <div className="px-4 py-2 text-sm text-muted-foreground">
-              No teams yet — run{' '}
-              <code className="text-foreground">nightshift team create</code>
-            </div>
-          ) : (
-            <CommandPicker
-              items={teams.map((t) => ({
-                name: `${t.name}/`,
-                meta: `${t.lead} +${t.members.length}`,
-              }))}
-              onSelect={(i) => {
-                const team = teams[i];
-                if (team) {
-                  navigate({
-                    to: '/teams/$teamId',
-                    params: { teamId: team.name },
-                  });
-                }
-              }}
-              createLabel="new team"
-              onCreate={async (name) => {
-                const team = await createTeamFn({ data: { name } });
-                setTeams((prev) => [...prev, team]);
-              }}
+          <div className="px-4 py-1.5 flex items-center gap-1.5">
+            <span className="text-muted-foreground text-xs select-none shrink-0">
+              name:
+            </span>
+            <input
+              // biome-ignore lint/a11y/noAutofocus: intentional — only element on page
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="new team name..."
+              className="flex-1 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground/40 font-mono"
             />
-          )}
+          </div>
         </div>
         <Separator />
         <div className="px-4 py-1 flex items-center gap-1.5 text-xs text-muted-foreground/50">

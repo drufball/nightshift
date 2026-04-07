@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createTmpDir, removeTmpDir } from '~/cli/test-helpers';
-import { readHomeTeam, readTeams } from './teams';
+import { readHomeTeam, readTeams, resolveStartTeam } from './teams';
 
 describe('readTeams', () => {
   let tmpDir: string;
@@ -91,5 +91,31 @@ describe('readHomeTeam', () => {
       '[team]\nhome = "alpha-team"\n\n[diff]\nignore = []\n',
     );
     expect(await readHomeTeam(tmpDir)).toBe('alpha-team');
+  });
+});
+
+describe('resolveStartTeam', () => {
+  const alpha = { name: 'alpha-team', lead: '', members: [] };
+  const beta = { name: 'beta-team', lead: '', members: [] };
+  const teams = [alpha, beta];
+
+  it('returns home team when set and present in list', () => {
+    expect(resolveStartTeam('beta-team', teams)).toBe('beta-team');
+  });
+
+  it('returns first team alphabetically when home team is null', () => {
+    expect(resolveStartTeam(null, teams)).toBe('alpha-team');
+  });
+
+  it('returns first team alphabetically when home team is not found', () => {
+    expect(resolveStartTeam('missing-team', teams)).toBe('alpha-team');
+  });
+
+  it('returns null when teams list is empty', () => {
+    expect(resolveStartTeam(null, [])).toBeNull();
+  });
+
+  it('returns null when home team not found and teams list is empty', () => {
+    expect(resolveStartTeam('some-team', [])).toBeNull();
   });
 });

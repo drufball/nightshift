@@ -78,6 +78,17 @@ export async function readHomeTeam(cwd: string): Promise<string | null> {
   return homeMatch?.[1] ?? null;
 }
 
+/** Returns the team name to navigate to on startup, or null if no teams exist. */
+export function resolveStartTeam(
+  homeTeam: string | null,
+  teams: TeamMeta[],
+): string | null {
+  if (homeTeam && teams.some((t) => t.name === homeTeam)) {
+    return homeTeam;
+  }
+  return teams[0]?.name ?? null;
+}
+
 export const listTeams = createServerFn({ method: 'GET' }).handler(async () =>
   readTeams(await resolveCwd()),
 );
