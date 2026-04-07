@@ -703,11 +703,8 @@ function TeamPage() {
         const ag = filtered[overlay.cursor];
         if (ag) {
           const projectCtx =
-            view.type === 'project-chat'
-              ? {
-                  projectId: view.projectId,
-                  projectName: view.projectName,
-                }
+            'projectId' in view
+              ? { projectId: view.projectId, projectName: view.projectName }
               : {};
           setView({ type: 'agent-session', agentName: ag.name, ...projectCtx });
           setSessionData(null);
@@ -875,7 +872,7 @@ function TeamPage() {
               }}
               onSelectAgent={(ag) => {
                 const projectCtx =
-                  view.type === 'project-chat'
+                  'projectId' in view
                     ? {
                         projectId: view.projectId,
                         projectName: view.projectName,
