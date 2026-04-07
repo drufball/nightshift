@@ -61,8 +61,9 @@ export function buildSystemPrompt(
     const contextLines = chatContext
       .map((m) => `${m.sender === 'user' ? 'User' : m.sender}: ${m.content}`)
       .join('\n');
+    const chatLabel = projectBranch ? 'Project' : 'Team';
     parts.push(
-      `---\n\n## Recent Team Chat\n\nThe following messages were recently posted in the team chat. Use this as context for your work:\n\n${contextLines}`,
+      `---\n\n## Recent ${chatLabel} Chat\n\nThe following messages were recently posted in the ${chatLabel.toLowerCase()} chat. Use this as context for your work:\n\n${contextLines}`,
     );
   }
 
