@@ -161,7 +161,7 @@ describe('getProjectDiff', () => {
 
   it('returns empty diff when branch has no changes', async () => {
     execSync('git checkout -b feature-empty', { cwd: tmpDir, stdio: 'pipe' });
-    execSync('git checkout main', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git checkout -', { cwd: tmpDir, stdio: 'pipe' });
 
     const result = await getProjectDiff(tmpDir, 'feature-empty');
     expect(result.diff).toBe('');
@@ -175,7 +175,7 @@ describe('getProjectDiff', () => {
     await writeFile(join(tmpDir, 'new-file.md'), '# New\nAdded content');
     execSync('git add new-file.md', { cwd: tmpDir, stdio: 'pipe' });
     execSync('git commit -m "Add new file"', { cwd: tmpDir, stdio: 'pipe' });
-    execSync('git checkout main', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git checkout -', { cwd: tmpDir, stdio: 'pipe' });
 
     const result = await getProjectDiff(tmpDir, 'feature-change');
     expect(result.diff).toContain('new-file.md');
@@ -197,7 +197,7 @@ describe('getProjectDiff', () => {
     await writeFile(join(tmpDir, 'debug.log'), 'some log output');
     execSync('git add .', { cwd: tmpDir, stdio: 'pipe' });
     execSync('git commit -m "Add files"', { cwd: tmpDir, stdio: 'pipe' });
-    execSync('git checkout main', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git checkout -', { cwd: tmpDir, stdio: 'pipe' });
 
     const result = await getProjectDiff(tmpDir, 'feature-ignore');
     expect(result.diff).toContain('app.js');
@@ -217,7 +217,7 @@ describe('getProjectDiff', () => {
     await writeFile(join(tmpDir, 'ignored.txt'), 'ignored content');
     execSync('git add .', { cwd: tmpDir, stdio: 'pipe' });
     execSync('git commit -m "Add files"', { cwd: tmpDir, stdio: 'pipe' });
-    execSync('git checkout main', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git checkout -', { cwd: tmpDir, stdio: 'pipe' });
 
     const result = await getProjectDiff(tmpDir, 'feature-stats');
     // Only kept.md should count, not ignored.txt
