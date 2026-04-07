@@ -1,16 +1,26 @@
 import { createFileRoute } from '@tanstack/react-router';
 import type React from 'react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Separator } from '~/components/ui/separator';
 import type { Project } from '~/db/projects';
 import type { AgentSession } from '~/db/sessions';
 import { cn } from '~/lib/utils';
+import {
+  type DiffStats,
+  type FileEntry,
+  getProjectDiffFn as getProjectDiffServerFn,
+  getTeamFileContent,
+  getTeamFiles,
+} from '~/server/artefacts';
 import { getTeamView } from '~/server/team-data';
 import type { TeamMeta } from '~/server/teams';
 import { listTeams } from '~/server/teams';
 import { AgentSessionView } from './$teamId/agent-session-view';
 import { Breadcrumb } from './$teamId/breadcrumb';
 import { ChatView } from './$teamId/chat-view';
+import { DiffView } from './$teamId/diff-view';
+import { FileContentView } from './$teamId/file-content-view';
+import { FilesView } from './$teamId/files-view';
 import { InlinePicker } from './$teamId/inline-picker';
 import { navBlockText } from './$teamId/nav-blocks';
 import {
@@ -19,6 +29,7 @@ import {
   type ViewState,
   useTeamPage,
 } from './$teamId/use-team-page';
+import { useServerFn } from '@tanstack/react-start';
 
 // Re-export for test compatibility
 export { Breadcrumb };
@@ -36,6 +47,13 @@ export const Route = createFileRoute('/teams/$teamId')({
 
 // ── Types re-exported for test compatibility ────────────────────────────────
 export type { ViewState } from './$teamId/use-team-page';
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+type ArtefactView =
+  | { kind: 'files'; path: string[]; entries: FileEntry[]; cursor: number }
+  | { kind: 'file-content'; relPath: string[]; content: string }
+  | { kind: 'diff'; diffText: string; stats: DiffStats };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -100,10 +118,55 @@ function TeamPage() {
     navigate,
   } = useTeamPage({ ...initialData, teamId });
 
+  // ── Artefact state ─────────────────────────────────────────────────────────
+  const [artefactView, setArtefactView] = useState<ArtefactView | null>(null);
+  const [diffStats, setDiffStats] = useState<DiffStats | null>(null);
+
   // ── DOM-only refs (tightly coupled to JSX) ─────────────────────────────────
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasInitialScrolled = useRef(false);
+
+  // ── Artefact refs ─────────────────────────────────────────────────────────
+  // useLayoutEffect so the ref is current before the browser paints — avoids
+  // a race where the user presses a key before the effect runs post-paint.
+  const artefactViewRef = useRef(artefactView);
+  useLayoutEffect(() => {
+    artefactViewRef.current = artefactView;
+  }, [artefactView]);
+
+  // projectsRef lets the keyboard handler read latest projects without being in deps
+  const projectsRef = useRef(projects);
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
+
+  // ── Artefact server functions ──────────────────────────────────────────────
+  const getTeamFilesFn = useServerFn(getTeamFiles);
+  const getTeamFileContentFn = useServerFn(getTeamFileContent);
+  const getProjectDiffFn = useServerFn(getProjectDiffServerFn);
+  // Stable refs so keyboard handler doesn't need these in its deps array
+  const getTeamFilesFnRef = useRef(getTeamFilesFn);
+  const getTeamFileContentFnRef = useRef(getTeamFileContentFn);
+  const getProjectDiffFnRef = useRef(getProjectDiffFn);
+  useEffect(() => {
+    getTeamFilesFnRef.current = getTeamFilesFn;
+    getTeamFileContentFnRef.current = getTeamFileContentFn;
+    getProjectDiffFnRef.current = getProjectDiffFn;
+  });
+
+  // Load diff stats whenever we enter a project-chat view
+  useEffect(() => {
+    if (view.type !== 'project-chat') {
+      setDiffStats(null);
+      return;
+    }
+    const project = projects.find((p) => p.id === view.projectId);
+    if (!project) return;
+    getProjectDiffFn({ data: { branch: project.branch } }).then((result) => {
+      setDiffStats(result.stats);
+    });
+  }, [view, projects, getProjectDiffFn]);
 
   // Scroll to bottom when messages change
   // biome-ignore lint/correctness/useExhaustiveDependencies: messages/projectMessages trigger scroll
@@ -165,8 +228,30 @@ function TeamPage() {
     inputRef.current?.blur();
   }
 
+  // ── Artefact actions ───────────────────────────────────────────────────────
+
+  async function openFilesBrowser(path: string[] = []) {
+    const entries = await getTeamFilesFnRef.current({
+      data: { teamId, subPath: path },
+    });
+    setArtefactView({ kind: 'files', path, entries, cursor: 0 });
+  }
+
+  async function openDiffViewer() {
+    const currentView = viewRef.current;
+    if (currentView.type !== 'project-chat') return;
+    const project = projectsRef.current.find(
+      (p) => p.id === currentView.projectId,
+    );
+    if (!project) return;
+    const result = await getProjectDiffFnRef.current({
+      data: { branch: project.branch },
+    });
+    setArtefactView({ kind: 'diff', diffText: result.diff, stats: result.stats });
+  }
+
   // ── Global keyboard handler ───────────────────────────────────────────────
-  // biome-ignore lint/correctness/useExhaustiveDependencies: handler intentionally reads latest state via refs; only navigate triggers re-registration
+  // biome-ignore lint/correctness/useExhaustiveDependencies: handler intentionally reads latest state via refs; only navigate/teamId trigger re-registration
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       const currentMode = modeRef.current;
@@ -174,6 +259,86 @@ function TeamPage() {
       const currentOverlay = overlayRef.current;
       const currentFocused = focusedIdxRef.current;
       const blocks = navBlocksRef.current;
+      const currentArtefact = artefactViewRef.current;
+
+      // Helper: navigate the file browser to a path via ref
+      function browseTo(path: string[]) {
+        getTeamFilesFnRef
+          .current({ data: { teamId, subPath: path } })
+          .then((entries) => {
+            setArtefactView({ kind: 'files', path, entries, cursor: 0 });
+          });
+      }
+
+      // Artefact view keyboard handling (takes priority)
+      if (currentArtefact !== null) {
+        if (
+          e.key === 'Escape' ||
+          (e.key === '-' && currentArtefact.kind === 'diff')
+        ) {
+          setArtefactView(null);
+          e.preventDefault();
+          return;
+        }
+        if (currentArtefact.kind === 'files') {
+          if (e.key === '-') {
+            if (currentArtefact.path.length > 0) {
+              browseTo(currentArtefact.path.slice(0, -1));
+            } else {
+              setArtefactView(null);
+            }
+            e.preventDefault();
+            return;
+          }
+          if (e.key === 'j') {
+            setArtefactView((av) =>
+              av?.kind === 'files'
+                ? { ...av, cursor: Math.min(av.cursor + 1, av.entries.length - 1) }
+                : av,
+            );
+            e.preventDefault();
+            return;
+          }
+          if (e.key === 'k') {
+            setArtefactView((av) =>
+              av?.kind === 'files'
+                ? { ...av, cursor: Math.max(av.cursor - 1, 0) }
+                : av,
+            );
+            e.preventDefault();
+            return;
+          }
+          if (e.key === 'Enter') {
+            const entry = currentArtefact.entries[currentArtefact.cursor];
+            if (entry) {
+              const newPath = [...currentArtefact.path, entry.name];
+              if (entry.type === 'dir') {
+                browseTo(newPath);
+              } else {
+                getTeamFileContentFnRef
+                  .current({ data: { teamId, relPath: newPath } })
+                  .then((content) => {
+                    setArtefactView({
+                      kind: 'file-content',
+                      relPath: newPath,
+                      content,
+                    });
+                  });
+              }
+            }
+            e.preventDefault();
+            return;
+          }
+        }
+        if (currentArtefact.kind === 'file-content') {
+          if (e.key === '-') {
+            browseTo(currentArtefact.relPath.slice(0, -1));
+            e.preventDefault();
+            return;
+          }
+        }
+        return;
+      }
 
       if (currentMode === 'insert') {
         if (e.key === 'Escape') {
@@ -208,6 +373,31 @@ function TeamPage() {
         case 'i':
           setMode('insert');
           inputRef.current?.focus();
+          e.preventDefault();
+          break;
+
+        case 'f':
+          browseTo([]);
+          e.preventDefault();
+          break;
+
+        case 'd':
+          if (currentView.type === 'project-chat') {
+            const proj = projectsRef.current.find(
+              (p) => p.id === currentView.projectId,
+            );
+            if (proj) {
+              getProjectDiffFnRef
+                .current({ data: { branch: proj.branch } })
+                .then((result) => {
+                  setArtefactView({
+                    kind: 'diff',
+                    diffText: result.diff,
+                    stats: result.stats,
+                  });
+                });
+            }
+          }
           e.preventDefault();
           break;
 
@@ -270,7 +460,7 @@ function TeamPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate]);
+  }, [navigate, teamId]);
 
   // ── Input keydown ─────────────────────────────────────────────────────────
   function handleInputKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -478,31 +668,71 @@ function TeamPage() {
     <div className="flex flex-col h-screen bg-background overflow-hidden font-mono">
       {/* ── Content area ────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
-        {view.type === 'chat' && (
-          <ChatView
-            navBlocks={navBlocks}
-            focusedIdx={focusedIdx}
-            onFocusBlock={setFocusedIdx}
-            bottomRef={bottomRef}
-          />
-        )}
-        {view.type === 'project-chat' && (
-          <ChatView
-            navBlocks={navBlocks}
-            focusedIdx={focusedIdx}
-            onFocusBlock={setFocusedIdx}
-            bottomRef={bottomRef}
-            emptyText={`No messages in ${view.projectName} yet.`}
-          />
-        )}
-        {view.type === 'agent-session' && (
-          <AgentSessionView
-            agentName={view.agentName}
-            navBlocks={navBlocks}
-            focusedIdx={focusedIdx}
-            onFocusBlock={setFocusedIdx}
-            bottomRef={bottomRef}
-          />
+        {artefactView !== null ? (
+          artefactView.kind === 'files' ? (
+            <FilesView
+              teamId={teamId}
+              path={artefactView.path}
+              entries={artefactView.entries}
+              cursor={artefactView.cursor}
+              onSelectEntry={(entry, newPath) => {
+                if (entry.type === 'dir') {
+                  openFilesBrowser(newPath);
+                } else {
+                  getTeamFileContentFn({
+                    data: { teamId, relPath: newPath },
+                  }).then((content) => {
+                    setArtefactView({
+                      kind: 'file-content',
+                      relPath: newPath,
+                      content,
+                    });
+                  });
+                }
+              }}
+              onNavigateCursor={(cursor) =>
+                setArtefactView((av) =>
+                  av?.kind === 'files' ? { ...av, cursor } : av,
+                )
+              }
+            />
+          ) : artefactView.kind === 'file-content' ? (
+            <FileContentView
+              relPath={artefactView.relPath}
+              content={artefactView.content}
+            />
+          ) : (
+            <DiffView diffText={artefactView.diffText} stats={artefactView.stats} />
+          )
+        ) : (
+          <>
+            {view.type === 'chat' && (
+              <ChatView
+                navBlocks={navBlocks}
+                focusedIdx={focusedIdx}
+                onFocusBlock={setFocusedIdx}
+                bottomRef={bottomRef}
+              />
+            )}
+            {view.type === 'project-chat' && (
+              <ChatView
+                navBlocks={navBlocks}
+                focusedIdx={focusedIdx}
+                onFocusBlock={setFocusedIdx}
+                bottomRef={bottomRef}
+                emptyText={`No messages in ${view.projectName} yet.`}
+              />
+            )}
+            {view.type === 'agent-session' && (
+              <AgentSessionView
+                agentName={view.agentName}
+                navBlocks={navBlocks}
+                focusedIdx={focusedIdx}
+                onFocusBlock={setFocusedIdx}
+                bottomRef={bottomRef}
+              />
+            )}
+          </>
         )}
       </div>
 
@@ -653,6 +883,27 @@ function TeamPage() {
           {agents.length} agents
         </button>
         <span className="text-muted-foreground ml-0.5">(a)</span>
+        <button
+          type="button"
+          onClick={() => openFilesBrowser([])}
+          className="text-muted-foreground/50 hover:text-primary hover:underline ml-3"
+        >
+          files
+        </button>
+        <span className="text-muted-foreground/30 ml-0.5">(f)</span>
+        {view.type === 'project-chat' && diffStats !== null && (
+          <>
+            <button
+              type="button"
+              onClick={() => openDiffViewer()}
+              className="text-muted-foreground/50 hover:text-primary hover:underline ml-3"
+            >
+              {diffStats.filesChanged} files changed +{diffStats.insertions} -
+              {diffStats.deletions}
+            </button>
+            <span className="text-muted-foreground/30 ml-0.5">(d)</span>
+          </>
+        )}
         {mode === 'normal' && (
           <span className="ml-auto text-muted-foreground/50">NORMAL</span>
         )}
