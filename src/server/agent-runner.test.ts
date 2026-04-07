@@ -1,9 +1,44 @@
-import { describe, expect, it } from 'bun:test';
+import { mock } from 'bun:test';
+
+// ---------------------------------------------------------------------------
+// Module mocks — must come before any other imports so Bun can hoist them.
+// ---------------------------------------------------------------------------
+
+// Mock @anthropic-ai/claude-agent-sdk used by runAgent.
+// We type the generator as AsyncGenerator<unknown> so mockReturnValue calls
+// with typed streams don't fail the type checker.
+const mockQuery = mock(
+  (): AsyncGenerator<unknown> => (async function* () {})(),
+);
+
+mock.module('@anthropic-ai/claude-agent-sdk', () => ({
+  query: mockQuery,
+}));
+
+// Mock node:fs/promises so readAgentMeta doesn't hit the real filesystem
+const mockReadFile = mock(async (_path: string, _enc: string) => {
+  return `---
+name: test-agent
+description: A test agent
+---
+You are a test agent.`;
+});
+
+mock.module('node:fs/promises', () => ({
+  readFile: mockReadFile,
+}));
+
+// ---------------------------------------------------------------------------
+// Regular imports
+// ---------------------------------------------------------------------------
+
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { Message } from '~/db/messages';
 import {
   buildSystemPrompt,
   formatToolStatus,
   parseAgentMeta,
+  runAgent,
   shouldFlushThinking,
 } from './agent-runner';
 
@@ -275,5 +310,199 @@ describe('buildSystemPrompt', () => {
     );
     expect(result).toContain('Recent Team Chat');
     expect(result).not.toContain('Recent Project Chat');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runAgent
+// ---------------------------------------------------------------------------
+
+/** Helper to build an async generator from an array of messages */
+async function* makeStream(messages: unknown[]): AsyncGenerator<unknown> {
+  for (const msg of messages) {
+    yield msg;
+  }
+}
+
+const BASE_AGENT_ARGS = {
+  agentName: 'test-agent',
+  userMessage: 'Hello, agent!',
+  cwd: '/fake/cwd',
+};
+
+describe('runAgent', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockReadFile.mockReset();
+    // Default agent file content
+    mockReadFile.mockResolvedValue(`---
+name: test-agent
+description: A test agent
+---
+You are a test agent.`);
+  });
+
+  it('returns the result text from a successful single-turn completion', async () => {
+    mockQuery.mockReturnValue(
+      makeStream([
+        { type: 'system', subtype: 'init', session_id: 'sess-abc' },
+        { type: 'result', subtype: 'success', result: 'Hello back!' },
+      ]),
+    );
+
+    const result = await runAgent(BASE_AGENT_ARGS);
+    expect(result).toBe('Hello back!');
+  });
+
+  it('calls onStatus with working then idle', async () => {
+    mockQuery.mockReturnValue(
+      makeStream([{ type: 'result', subtype: 'success', result: 'done' }]),
+    );
+
+    const statusCalls: Array<['idle' | 'working', string?]> = [];
+    await runAgent({
+      ...BASE_AGENT_ARGS,
+      onStatus: (status, text) => statusCalls.push([status, text]),
+    });
+
+    // First call must be working/thinking
+    expect(statusCalls[0]).toEqual(['working', 'thinking...']);
+    // Last call must always be idle (from the finally block)
+    expect(statusCalls[statusCalls.length - 1][0]).toBe('idle');
+  });
+
+  it('calls onSessionId with the session id from the init event', async () => {
+    mockQuery.mockReturnValue(
+      makeStream([
+        { type: 'system', subtype: 'init', session_id: 'new-session-id' },
+        { type: 'result', subtype: 'success', result: 'ok' },
+      ]),
+    );
+
+    const sessionIds: string[] = [];
+    await runAgent({
+      ...BASE_AGENT_ARGS,
+      onSessionId: (id) => sessionIds.push(id),
+    });
+
+    expect(sessionIds).toEqual(['new-session-id']);
+  });
+
+  it('does not call onSessionId when existingSdkSessionId is provided', async () => {
+    mockQuery.mockReturnValue(
+      makeStream([
+        { type: 'system', subtype: 'init', session_id: 'new-session-id' },
+        { type: 'result', subtype: 'success', result: 'resumed' },
+      ]),
+    );
+
+    const sessionIds: string[] = [];
+    await runAgent({
+      ...BASE_AGENT_ARGS,
+      existingSdkSessionId: 'existing-session',
+      onSessionId: (id) => sessionIds.push(id),
+    });
+
+    expect(sessionIds).toHaveLength(0);
+  });
+
+  it('sets status to idle in finally block even if stream throws', async () => {
+    mockQuery.mockReturnValue(
+      (async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'sess-err' };
+        throw new Error('stream exploded');
+      })(),
+    );
+
+    const statusCalls: Array<'idle' | 'working'> = [];
+    await expect(
+      runAgent({
+        ...BASE_AGENT_ARGS,
+        onStatus: (status) => statusCalls.push(status),
+      }),
+    ).rejects.toThrow('stream exploded');
+
+    expect(statusCalls[statusCalls.length - 1]).toBe('idle');
+  });
+
+  it('surfaces thinking text via onStatus as it accumulates past the flush threshold', async () => {
+    const longThinking = 'a'.repeat(160); // > 150 chars — triggers a flush
+    mockQuery.mockReturnValue(
+      makeStream([
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            delta: { type: 'thinking_delta', thinking: longThinking },
+          },
+        },
+        {
+          type: 'stream_event',
+          event: { type: 'content_block_stop' },
+        },
+        { type: 'result', subtype: 'success', result: 'thought about it' },
+      ]),
+    );
+
+    const workingTexts: string[] = [];
+    await runAgent({
+      ...BASE_AGENT_ARGS,
+      onStatus: (status, text) => {
+        if (status === 'working' && text && text !== 'thinking...') {
+          workingTexts.push(text);
+        }
+      },
+    });
+
+    // The thinking block must have been surfaced at least once
+    expect(workingTexts.length).toBeGreaterThan(0);
+    expect(workingTexts.some((t) => t.includes('a'.repeat(10)))).toBe(true);
+  });
+
+  it('does NOT flush thinking status when buffer has grown less than 150 chars', async () => {
+    const shortThinking = 'a'.repeat(100); // < 150 chars — should NOT trigger flush
+    mockQuery.mockReturnValue(
+      makeStream([
+        {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            delta: { type: 'thinking_delta', thinking: shortThinking },
+          },
+        },
+        // No content_block_stop here — so no final flush either
+        { type: 'result', subtype: 'success', result: 'done' },
+      ]),
+    );
+
+    const workingThinkingCalls: string[] = [];
+    await runAgent({
+      ...BASE_AGENT_ARGS,
+      onStatus: (status, text) => {
+        if (
+          status === 'working' &&
+          text &&
+          text !== 'thinking...' &&
+          text.length > 10
+        ) {
+          workingThinkingCalls.push(text);
+        }
+      },
+    });
+
+    // Should NOT have been flushed mid-stream (no content_block_stop was emitted)
+    expect(workingThinkingCalls).toHaveLength(0);
+  });
+
+  it('returns empty string when stream ends without a success result', async () => {
+    mockQuery.mockReturnValue(
+      makeStream([
+        { type: 'system', subtype: 'init', session_id: 'sess-noresult' },
+        // No result message — stream just ends
+      ]),
+    );
+
+    const result = await runAgent(BASE_AGENT_ARGS);
+    expect(result).toBe('');
   });
 });
