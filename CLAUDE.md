@@ -4,7 +4,7 @@
 
 - **Runtime/package manager:** Bun
 - **Web app:** TanStack Start (SSR) + React 19, built with Vite — entry at `src/routes/`
-- **CLI:** Commander — entry at `src/cli/index.ts`, symlinked to `/usr/local/bin/nightshift-dev`
+- **CLI:** Commander — entry at `src/cli/index.ts`, symlinked to `/usr/local/bin/ns`
 - **UI components:** shadcn/ui — design system lives in `src/components/ui/`
 - **DB:** bun:sqlite. List `src/db/` to see available tables.
 
