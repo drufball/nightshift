@@ -196,6 +196,18 @@ function TeamPage() {
   const [projectSending, setProjectSending] = useState(false);
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
 
+  // Sync state when navigating to a different team
+  useEffect(() => {
+    setMessages(initialData.messages);
+    setAgents(initialData.agents);
+    setProjects(initialData.projects);
+    setAllTeams(initialData.teams);
+    setView({ type: 'chat' });
+    setOverlay(null);
+    setFocusedIdx(-1);
+    setSessionData(null);
+  }, [initialData]);
+
   const modeRef = useRef(mode);
   const viewRef = useRef(view);
   const overlayRef = useRef(overlay);
