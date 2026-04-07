@@ -1,13 +1,19 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { useServerFn } from '@tanstack/react-start';
 import { useState } from 'react';
 import { CommandPicker } from '~/components/command-picker';
 import { Separator } from '~/components/ui/separator';
 import type { TeamMeta } from '~/server/teams';
-import { createTeam, listTeams } from '~/server/teams';
+import { createTeam, getHomeTeam, listTeams } from '~/server/teams';
 
 export const Route = createFileRoute('/')({
-  loader: () => listTeams(),
+  loader: async () => {
+    const homeTeam = await getHomeTeam();
+    if (homeTeam) {
+      throw redirect({ to: '/teams/$teamId', params: { teamId: homeTeam } });
+    }
+    return listTeams();
+  },
   component: TeamsPage,
 });
 

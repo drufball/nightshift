@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createTmpDir, removeTmpDir } from '~/cli/test-helpers';
-import { readTeams } from './teams';
+import { readHomeTeam, readTeams } from './teams';
 
 describe('readTeams', () => {
   let tmpDir: string;
@@ -49,5 +49,47 @@ describe('readTeams', () => {
 
     const teams = await readTeams(tmpDir);
     expect(teams).toHaveLength(0);
+  });
+});
+
+describe('readHomeTeam', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await createTmpDir();
+  });
+
+  afterEach(async () => {
+    await removeTmpDir(tmpDir);
+  });
+
+  it('returns null when nightshift.toml does not exist', async () => {
+    expect(await readHomeTeam(tmpDir)).toBeNull();
+  });
+
+  it('returns null when [team] section is missing', async () => {
+    await writeFile(join(tmpDir, 'nightshift.toml'), '[diff]\nignore = []\n');
+    expect(await readHomeTeam(tmpDir)).toBeNull();
+  });
+
+  it('returns null when home is not set under [team]', async () => {
+    await writeFile(join(tmpDir, 'nightshift.toml'), '[team]\n');
+    expect(await readHomeTeam(tmpDir)).toBeNull();
+  });
+
+  it('reads home team name from [team] section', async () => {
+    await writeFile(
+      join(tmpDir, 'nightshift.toml'),
+      '[diff]\nignore = []\n\n[team]\nhome = "my-team"\n',
+    );
+    expect(await readHomeTeam(tmpDir)).toBe('my-team');
+  });
+
+  it('returns home team even when [team] section comes first', async () => {
+    await writeFile(
+      join(tmpDir, 'nightshift.toml'),
+      '[team]\nhome = "alpha-team"\n\n[diff]\nignore = []\n',
+    );
+    expect(await readHomeTeam(tmpDir)).toBe('alpha-team');
   });
 });

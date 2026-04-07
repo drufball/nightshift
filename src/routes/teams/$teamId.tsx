@@ -18,9 +18,17 @@ import {
   sendProjectMessage as sendProjectMessageFn,
   sendTeamMessage,
 } from '~/server/team-data';
+import type { TeamMeta } from '~/server/teams';
+import { listTeams } from '~/server/teams';
 
 export const Route = createFileRoute('/teams/$teamId')({
-  loader: ({ params }) => getTeamView({ data: { teamId: params.teamId } }),
+  loader: async ({ params }) => {
+    const [teamView, teams] = await Promise.all([
+      getTeamView({ data: { teamId: params.teamId } }),
+      listTeams(),
+    ]);
+    return { ...teamView, teams };
+  },
   component: TeamPage,
 });
 
@@ -45,6 +53,7 @@ export type ViewState =
   | { type: 'agent-session'; agentName: string };
 
 type OverlayState =
+  | { kind: 'teams'; cursor: number }
   | { kind: 'projects'; cursor: number }
   | { kind: 'projects-create' }
   | { kind: 'agents'; cursor: number }
@@ -164,6 +173,7 @@ function TeamPage() {
   const [messages, setMessages] = useState<Message[]>(initialData.messages);
   const [agents, setAgents] = useState<AgentInfo[]>(initialData.agents);
   const [projects, setProjects] = useState<Project[]>(initialData.projects);
+  const [allTeams, setAllTeams] = useState<TeamMeta[]>(initialData.teams);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
 
@@ -237,6 +247,11 @@ function TeamPage() {
   }, [navBlocks]);
 
   const pickerItems = useMemo(() => {
+    if (overlay?.kind === 'teams') {
+      return allTeams.filter((t) =>
+        t.name.toLowerCase().includes(input.toLowerCase()),
+      );
+    }
     if (overlay?.kind === 'projects') {
       return projects.filter((p) =>
         p.name.toLowerCase().includes(input.toLowerCase()),
@@ -248,7 +263,7 @@ function TeamPage() {
       );
     }
     return [];
-  }, [overlay, projects, agents, input]);
+  }, [overlay, allTeams, projects, agents, input]);
 
   const mentionFilteredAgents = useMemo(() => {
     if (!overlay || overlay.kind !== 'mention') return [];
@@ -464,6 +479,7 @@ function TeamPage() {
           if (currentOverlay?.kind === 'mention') {
             setOverlay(null);
           } else if (
+            currentOverlay?.kind === 'teams' ||
             currentOverlay?.kind === 'projects' ||
             currentOverlay?.kind === 'agents'
           ) {
@@ -513,7 +529,11 @@ function TeamPage() {
           break;
 
         case 't':
-          navigate({ to: '/' });
+          setOverlay({ kind: 'teams', cursor: 0 });
+          setInput('');
+          setMode('insert');
+          inputRef.current?.focus();
+          setFocusedIdx(-1);
           e.preventDefault();
           break;
 
@@ -577,6 +597,7 @@ function TeamPage() {
 
     // When a list picker is open, update resets cursor; no mention detection
     if (
+      currentOverlay?.kind === 'teams' ||
       currentOverlay?.kind === 'projects' ||
       currentOverlay?.kind === 'agents'
     ) {
@@ -606,6 +627,45 @@ function TeamPage() {
 
   // ── Input keydown ─────────────────────────────────────────────────────────
   function handleInputKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Teams picker
+    if (overlay?.kind === 'teams') {
+      const filtered = pickerItems as TeamMeta[];
+      if (e.key === 'ArrowDown') {
+        setOverlay((ov) =>
+          ov?.kind === 'teams'
+            ? {
+                ...ov,
+                cursor: Math.min(
+                  ov.cursor + 1,
+                  Math.max(filtered.length - 1, 0),
+                ),
+              }
+            : ov,
+        );
+        e.preventDefault();
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        setOverlay((ov) =>
+          ov?.kind === 'teams'
+            ? { ...ov, cursor: Math.max(ov.cursor - 1, 0) }
+            : ov,
+        );
+        e.preventDefault();
+        return;
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        const team = filtered[overlay.cursor];
+        if (team) {
+          closePicker();
+          navigate({ to: '/teams/$teamId', params: { teamId: team.name } });
+        }
+        e.preventDefault();
+        return;
+      }
+      return;
+    }
+
     // Projects picker
     if (overlay?.kind === 'projects') {
       const filtered = pickerItems as Project[];
@@ -757,7 +817,9 @@ function TeamPage() {
   const inputPlaceholder =
     overlay?.kind === 'projects-create'
       ? 'project name...'
-      : overlay?.kind === 'projects' || overlay?.kind === 'agents'
+      : overlay?.kind === 'teams' ||
+          overlay?.kind === 'projects' ||
+          overlay?.kind === 'agents'
         ? 'filter...'
         : undefined;
 
@@ -836,6 +898,13 @@ function TeamPage() {
               overlay={overlay}
               pickerItems={pickerItems}
               mentionItems={mentionFilteredAgents}
+              onSelectTeam={(team) => {
+                closePicker();
+                navigate({
+                  to: '/teams/$teamId',
+                  params: { teamId: team.name },
+                });
+              }}
               onSelectProject={(p) => {
                 setView({
                   type: 'project-chat',
@@ -894,7 +963,13 @@ function TeamPage() {
       <div className="px-4 py-1 shrink-0 flex items-center gap-1 text-xs">
         <button
           type="button"
-          onClick={() => navigate({ to: '/' })}
+          onClick={() => {
+            setOverlay({ kind: 'teams', cursor: 0 });
+            setInput('');
+            setMode('insert');
+            inputRef.current?.focus();
+            setFocusedIdx(-1);
+          }}
           className="text-muted-foreground/50 hover:text-primary hover:underline"
         >
           teams
@@ -942,20 +1017,53 @@ function InlinePicker({
   overlay,
   pickerItems,
   mentionItems,
+  onSelectTeam,
   onSelectProject,
   onSelectAgent,
   onSelectMention,
   onCreateProject,
 }: {
   overlay: OverlayState;
-  pickerItems: Project[] | AgentInfo[];
+  pickerItems: TeamMeta[] | Project[] | AgentInfo[];
   mentionItems: AgentInfo[];
+  onSelectTeam: (team: TeamMeta) => void;
   onSelectProject: (p: Project) => void;
   onSelectAgent: (ag: AgentInfo) => void;
   onSelectMention: (agent: AgentInfo) => void;
   onCreateProject: () => void;
 }) {
   const cursor = 'cursor' in overlay ? overlay.cursor : 0;
+
+  if (overlay.kind === 'teams') {
+    const teams = pickerItems as TeamMeta[];
+    return (
+      <div className="border-t border-border/20 -mx-4 mb-2 max-h-48 overflow-y-auto">
+        {teams.length === 0 && (
+          <div className="px-4 py-0.5 text-sm text-muted-foreground/50 italic font-mono">
+            (no matches)
+          </div>
+        )}
+        {teams.map((team, i) => (
+          <button
+            key={team.name}
+            type="button"
+            onClick={() => onSelectTeam(team)}
+            className={cn(
+              'flex items-baseline justify-between text-left w-full px-4 py-0.5 text-sm font-mono transition-colors',
+              i === cursor
+                ? 'bg-accent text-accent-foreground'
+                : 'hover:bg-accent/40',
+            )}
+          >
+            <span className="text-foreground">{team.name}/</span>
+            <span className="text-xs ml-4 text-muted-foreground/60">
+              {team.lead} +{team.members.length}
+            </span>
+          </button>
+        ))}
+      </div>
+    );
+  }
 
   if (overlay.kind === 'mention') {
     return (
@@ -991,7 +1099,7 @@ function InlinePicker({
   }
 
   const isProjects = overlay.kind === 'projects';
-  const items = pickerItems as (Project | AgentInfo)[];
+  const items = pickerItems as (Project | AgentInfo | TeamMeta)[];
   const createHighlighted = isProjects && cursor === items.length;
 
   return (
