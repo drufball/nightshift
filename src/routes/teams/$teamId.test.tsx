@@ -6,6 +6,46 @@ import { Breadcrumb, type ViewState } from './$teamId';
 
 afterEach(cleanup);
 
+// ── Mention regex ──────────────────────────────────────────────────────────
+
+describe('mention regex', () => {
+  // The regex used in the mention detection handler.
+  // Must match hyphenated agent names (e.g. tech-lead, code-reviewer).
+  const MENTION_RE = /@([\w-]*)$/;
+
+  it('matches a plain agent name after @', () => {
+    const match = 'hello @aria'.match(MENTION_RE);
+    expect(match).not.toBeNull();
+    expect(match?.[1]).toBe('aria');
+  });
+
+  it('matches a hyphenated agent name after @ (regression: \\w does not match hyphens)', () => {
+    const match = 'hello @tech-lead'.match(MENTION_RE);
+    expect(match).not.toBeNull();
+    expect(match?.[1]).toBe('tech-lead');
+  });
+
+  it('matches a partial hyphenated name while typing', () => {
+    const match = '@tech-'.match(MENTION_RE);
+    expect(match).not.toBeNull();
+    expect(match?.[1]).toBe('tech-');
+  });
+
+  it('filters agents correctly by hyphenated query', () => {
+    const agents = [
+      { name: 'tech-lead' },
+      { name: 'code-reviewer' },
+      { name: 'aria' },
+    ];
+    const query = 'tech-lead';
+    const filtered = agents.filter((a) =>
+      a.name.toLowerCase().includes(query.toLowerCase()),
+    );
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].name).toBe('tech-lead');
+  });
+});
+
 // ── Breadcrumb ─────────────────────────────────────────────────────────────
 
 describe('Breadcrumb', () => {

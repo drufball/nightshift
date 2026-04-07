@@ -642,7 +642,7 @@ function TeamPage() {
     // Mention detection
     const cursor = e.target.selectionStart ?? value.length;
     const before = value.slice(0, cursor);
-    const match = before.match(/@(\w*)$/);
+    const match = before.match(/@([\w-]*)$/);
     if (match) {
       const atStart = cursor - match[0].length;
       const query = match[1];
