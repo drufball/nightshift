@@ -4,6 +4,7 @@ import { type Database, openDb } from './index';
 import { getProjectMessages, getTeamMessages, insertMessage } from './messages';
 import {
   branchExists,
+  getOpenProjectsByName,
   getOpenProjectsByTeam,
   getProjectsByTeam,
   insertProject,
@@ -69,6 +70,25 @@ describe('projects', () => {
     const p = insertProject(db, 'feat', 'feature-team', 'feat');
     markProjectMerged(db, p.id);
     expect(branchExists(db, 'feat')).toBe(false);
+  });
+
+  it('getOpenProjectsByName returns only open projects with the given name', () => {
+    const p1 = insertProject(db, 'my-feature', 'team-a', 'my-feature');
+    const p2 = insertProject(db, 'my-feature', 'team-b', 'my-feature-a1b2');
+    insertProject(db, 'other', 'team-a', 'other');
+    markProjectMerged(db, p2.id);
+
+    const result = getOpenProjectsByName(db, 'my-feature');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(p1.id);
+  });
+
+  it('getOpenProjectsByName returns empty array when no open projects match', () => {
+    const p = insertProject(db, 'my-feature', 'team-a', 'my-feature');
+    markProjectMerged(db, p.id);
+
+    const result = getOpenProjectsByName(db, 'my-feature');
+    expect(result).toHaveLength(0);
   });
 });
 

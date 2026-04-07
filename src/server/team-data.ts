@@ -1,5 +1,11 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { Message } from '~/db/messages';
+import {
+  getProjectMessages as getProjectMessagesDb,
+  getTeamMessages,
+  insertMessage,
+} from '~/db/messages';
+import { getSession, setSessionSdkId, upsertSession } from '~/db/sessions';
 import { getDb } from './db';
 import type { TeamMeta } from './teams';
 import { orderedMembers, readTeams, resolveCwd } from './teams';
@@ -154,17 +160,11 @@ export async function runConversationLoop({
   runAgentFn?: RunAgentFn;
 }): Promise<void> {
   const { join } = await import('node:path');
-  const { insertMessage, getTeamMessages, getProjectMessages } = await import(
-    '~/db/messages'
-  );
-  const { getSession, setSessionSdkId, upsertSession } = await import(
-    '~/db/sessions'
-  );
 
   /** Fetch the most recent messages in the right scope (team or project). */
   const getRecentMessages = () =>
     projectId
-      ? getProjectMessages(db, projectId).slice(-20)
+      ? getProjectMessagesDb(db, projectId).slice(-20)
       : getTeamMessages(db, teamId).slice(-20);
 
   // Build the default runAgent wrapper that handles DB status persistence.

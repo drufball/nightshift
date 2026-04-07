@@ -2,7 +2,6 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useServerFn } from '@tanstack/react-start';
 import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Markdown from 'react-markdown';
 import { Separator } from '~/components/ui/separator';
 import type { Message } from '~/db/messages';
 import type { Project } from '~/db/projects';
@@ -21,6 +20,18 @@ import {
 } from '~/server/team-data';
 import type { TeamMeta } from '~/server/teams';
 import { listTeams } from '~/server/teams';
+import { AgentSessionView } from './$teamId/agent-session-view';
+import { Breadcrumb } from './$teamId/breadcrumb';
+import { ChatView } from './$teamId/chat-view';
+import {
+  type NavBlock,
+  flattenSessionBlocks,
+  msgToNavBlocks,
+  navBlockText,
+} from './$teamId/nav-blocks';
+
+// Re-export for test compatibility
+export { Breadcrumb };
 
 export const Route = createFileRoute('/teams/$teamId')({
   loader: async ({ params }) => {
@@ -65,76 +76,6 @@ type OverlayState =
   | { kind: 'agents'; cursor: number }
   | { kind: 'mention'; atStart: number; query: string; cursor: number };
 
-type ContentBlock =
-  | { type: 'text'; text: string }
-  | { type: 'thinking'; thinking: string }
-  | { type: 'tool_use'; name: string; input: unknown }
-  | { type: 'tool_result'; content: unknown }
-  | { type: string; [key: string]: unknown };
-
-type NavBlock =
-  | {
-      kind: 'chat';
-      id: string;
-      sender: string;
-      content: string;
-      isUser: boolean;
-    }
-  | {
-      kind: 'session';
-      id: string;
-      role: string;
-      isUser: boolean;
-      block: ContentBlock;
-    };
-
-// ── Breadcrumb ─────────────────────────────────────────────────────────────
-
-export function Breadcrumb({
-  view,
-  teamId,
-}: {
-  view: ViewState;
-  teamId: string;
-}) {
-  switch (view.type) {
-    case 'chat':
-      return <span className="text-primary">~/{teamId}</span>;
-    case 'project-chat':
-      return (
-        <>
-          <span className="text-primary">~/{teamId}</span>
-          <span className="text-secondary ml-1">({view.projectName})</span>
-        </>
-      );
-    case 'agent-session':
-      return (
-        <>
-          <span className="text-primary">
-            ~/{teamId}/{view.agentName}
-          </span>
-          {view.projectId && (
-            <span className="text-secondary ml-1">(project)</span>
-          )}
-        </>
-      );
-  }
-}
-
-// ── Markdown ───────────────────────────────────────────────────────────────
-
-function FlatHeading({ children }: { children?: React.ReactNode }) {
-  return <p className="font-bold">{children}</p>;
-}
-const markdownComponents = {
-  h1: FlatHeading,
-  h2: FlatHeading,
-  h3: FlatHeading,
-  h4: FlatHeading,
-  h5: FlatHeading,
-  h6: FlatHeading,
-};
-
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 /** Pure helper: merge the latest session statuses into the agent list. */
@@ -146,43 +87,6 @@ export function applySessionsToAgents(
     const s = sessions.find((s) => s.agent_name === a.name);
     return s ? { ...a, status: s.status, statusText: s.status_text } : a;
   });
-}
-
-function flattenSessionBlocks(messages: AgentSessionMessage[]): NavBlock[] {
-  const result: NavBlock[] = [];
-  for (const msg of messages) {
-    if (msg.type === 'system') continue;
-    const raw = msg.message;
-    const role = (raw?.role as string | undefined) ?? msg.type;
-    const isUser = role === 'user';
-    const content = raw?.content;
-    const blocks: ContentBlock[] = (() => {
-      if (!content) return [];
-      if (typeof content === 'string') return [{ type: 'text', text: content }];
-      if (Array.isArray(content)) return content as ContentBlock[];
-      return [];
-    })();
-    if (isUser) continue;
-    for (let i = 0; i < blocks.length; i++) {
-      result.push({
-        kind: 'session',
-        id: `${msg.uuid}-${i}`,
-        role,
-        isUser,
-        block: blocks[i],
-      });
-    }
-  }
-  return result;
-}
-
-function navBlockText(b: NavBlock): string {
-  if (b.kind === 'chat') return b.content;
-  if (b.kind === 'session' && b.block.type === 'text')
-    return (b.block as { type: 'text'; text: string }).text;
-  if (b.kind === 'session' && b.block.type === 'thinking')
-    return (b.block as { type: 'thinking'; thinking: string }).thinking;
-  return '';
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
@@ -250,23 +154,6 @@ function TeamPage() {
   const sendProjectMsgFn = useServerFn(sendProjectMessageFn);
   const createProjectFn = useServerFn(createNewProject);
 
-  function msgToNavBlocks(m: Message): NavBlock[] {
-    const sender = m.sender === 'user' ? 'you' : m.sender;
-    const isUser = m.sender === 'user';
-    return m.content
-      .split('\n\n')
-      .map((chunk) => chunk.trim())
-      .filter((chunk) => chunk.length > 0)
-      .map((chunk, i) => ({
-        kind: 'chat' as const,
-        id: `${m.id}-p${i}`,
-        sender,
-        content: chunk,
-        isUser,
-      }));
-  }
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: msgToNavBlocks and flattenSessionBlocks are stable
   const navBlocks: NavBlock[] = useMemo(() => {
     if (view.type === 'chat') return messages.flatMap(msgToNavBlocks);
     if (view.type === 'project-chat')
@@ -1223,176 +1110,4 @@ function InlinePicker({
       )}
     </div>
   );
-}
-
-// ── ChatView ───────────────────────────────────────────────────────────────
-
-function ChatView({
-  navBlocks,
-  focusedIdx,
-  onFocusBlock,
-  bottomRef,
-  emptyText = 'Send a message to get started.',
-}: {
-  navBlocks: NavBlock[];
-  focusedIdx: number;
-  onFocusBlock: (i: number) => void;
-  bottomRef: React.RefObject<HTMLDivElement | null>;
-  emptyText?: string;
-}) {
-  type Group = {
-    sender: string;
-    isUser: boolean;
-    blocks: { b: NavBlock; idx: number }[];
-  };
-  const groups: Group[] = [];
-  for (let i = 0; i < navBlocks.length; i++) {
-    const nb = navBlocks[i];
-    if (nb.kind !== 'chat') continue;
-    const last = groups[groups.length - 1];
-    if (last && last.sender === nb.sender) {
-      last.blocks.push({ b: nb, idx: i });
-    } else {
-      groups.push({
-        sender: nb.sender,
-        isUser: nb.isUser,
-        blocks: [{ b: nb, idx: i }],
-      });
-    }
-  }
-
-  return (
-    <div className="px-4 py-4 flex flex-col gap-4 mt-auto">
-      {navBlocks.length === 0 && (
-        <p className="text-sm text-muted-foreground py-8 text-center">
-          {emptyText}
-        </p>
-      )}
-      {groups.map((group) => (
-        <div key={group.blocks[0].b.id} className="flex flex-col gap-0.5">
-          <span
-            className={cn(
-              'text-sm font-bold mb-1',
-              group.isUser ? 'text-primary' : 'text-secondary',
-            )}
-          >
-            {group.sender}
-          </span>
-          {group.blocks.map(({ b, idx }) => {
-            if (b.kind !== 'chat') return null;
-            const isFocused = idx === focusedIdx;
-            return (
-              <button
-                key={b.id}
-                type="button"
-                onClick={() => onFocusBlock(idx)}
-                className={cn(
-                  'text-left w-full py-0.5 pl-2 -ml-2 rounded-sm transition-colors',
-                  isFocused ? 'bg-primary/10' : 'hover:bg-accent/20',
-                )}
-              >
-                <div className="prose prose-sm dark:prose-invert max-w-none text-sm text-foreground">
-                  <Markdown components={markdownComponents}>
-                    {b.content}
-                  </Markdown>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      ))}
-      <div ref={bottomRef} />
-    </div>
-  );
-}
-
-// ── AgentSessionView ───────────────────────────────────────────────────────
-
-function AgentSessionView({
-  agentName,
-  navBlocks,
-  focusedIdx,
-  onFocusBlock,
-  bottomRef,
-}: {
-  agentName: string;
-  navBlocks: NavBlock[];
-  focusedIdx: number;
-  onFocusBlock: (i: number) => void;
-  bottomRef: React.RefObject<HTMLDivElement | null>;
-}) {
-  type BlockGroup = { blocks: { b: NavBlock; idx: number }[] };
-  const groups: BlockGroup[] = [{ blocks: [] }];
-  for (let i = 0; i < navBlocks.length; i++) {
-    const nb = navBlocks[i];
-    if (nb.kind !== 'session') continue;
-    groups[0].blocks.push({ b: nb, idx: i });
-  }
-
-  return (
-    <div className="px-4 py-4 flex flex-col gap-4 mt-auto">
-      {navBlocks.length === 0 && (
-        <p className="text-sm text-muted-foreground py-8 text-center">
-          No session history for {agentName} yet.
-        </p>
-      )}
-      {groups[0].blocks.length > 0 && (
-        <div className="flex flex-col gap-0.5">
-          <span className="text-sm font-bold mb-1 text-secondary">
-            {agentName}
-          </span>
-          {groups[0].blocks.map(({ b, idx }) => {
-            const isFocused = idx === focusedIdx;
-            if (b.kind !== 'session') return null;
-            return (
-              <button
-                key={b.id}
-                type="button"
-                onClick={() => onFocusBlock(idx)}
-                className={cn(
-                  'text-left w-full py-0.5 pl-2 -ml-2 rounded-sm transition-colors',
-                  isFocused ? 'bg-primary/10' : 'hover:bg-accent/20',
-                )}
-              >
-                <SessionBlockContent block={b.block} />
-              </button>
-            );
-          })}
-        </div>
-      )}
-      <div ref={bottomRef} />
-    </div>
-  );
-}
-
-function SessionBlockContent({ block }: { block: ContentBlock }) {
-  if (block.type === 'text') {
-    const b = block as { type: 'text'; text: string };
-    return (
-      <div className="prose prose-sm dark:prose-invert max-w-none text-sm text-foreground">
-        <Markdown components={markdownComponents}>{b.text}</Markdown>
-      </div>
-    );
-  }
-  if (block.type === 'thinking') {
-    const b = block as { type: 'thinking'; thinking: string };
-    return (
-      <details className="text-xs text-muted-foreground/50">
-        <summary className="cursor-pointer select-none">thinking</summary>
-        <p className="mt-1 whitespace-pre-wrap">{b.thinking}</p>
-      </details>
-    );
-  }
-  if (block.type === 'tool_use') {
-    const b = block as { type: 'tool_use'; name: string; input: unknown };
-    return (
-      <details className="text-xs text-muted-foreground/50">
-        <summary className="cursor-pointer select-none">{b.name}</summary>
-        <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-all">
-          {JSON.stringify(b.input, null, 2)}
-        </pre>
-      </details>
-    );
-  }
-  return null;
 }

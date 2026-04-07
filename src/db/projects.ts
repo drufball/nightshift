@@ -53,6 +53,15 @@ export function getOpenProjectsByTeam(db: Database, teamId: string): Project[] {
     .all(teamId) as Project[];
 }
 
+export function getOpenProjectsByName(
+  db: Database,
+  name: string,
+): { id: string }[] {
+  return db
+    .prepare("SELECT id FROM projects WHERE name = ? AND status = 'open'")
+    .all(name) as { id: string }[];
+}
+
 export function markProjectMerged(db: Database, id: string): void {
   db.prepare("UPDATE projects SET status = 'merged' WHERE id = ?").run(id);
 }
