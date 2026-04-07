@@ -63,8 +63,38 @@ export async function resolveCwd(): Promise<string> {
     .trim();
 }
 
+export async function readHomeTeam(cwd: string): Promise<string | null> {
+  const { readFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  let content: string;
+  try {
+    content = await readFile(join(cwd, 'nightshift.toml'), 'utf8');
+  } catch {
+    return null;
+  }
+  const sectionMatch = content.match(/\[team\]([\s\S]*?)(?:\n\[|$)/);
+  if (!sectionMatch) return null;
+  const homeMatch = sectionMatch[1].match(/^home\s*=\s*"([^"]+)"/m);
+  return homeMatch?.[1] ?? null;
+}
+
+/** Returns the team name to navigate to on startup, or null if no teams exist. */
+export function resolveStartTeam(
+  homeTeam: string | null,
+  teams: TeamMeta[],
+): string | null {
+  if (homeTeam && teams.some((t) => t.name === homeTeam)) {
+    return homeTeam;
+  }
+  return teams[0]?.name ?? null;
+}
+
 export const listTeams = createServerFn({ method: 'GET' }).handler(async () =>
   readTeams(await resolveCwd()),
+);
+
+export const getHomeTeam = createServerFn({ method: 'GET' }).handler(async () =>
+  readHomeTeam(await resolveCwd()),
 );
 
 export const createTeam = createServerFn({ method: 'POST' })

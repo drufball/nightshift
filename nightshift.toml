@@ -1,3 +1,6 @@
+[team]
+home = ""
+
 [diff]
 ignore = [
   "**/*.test.ts",
