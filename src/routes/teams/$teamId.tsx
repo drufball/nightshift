@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { useServerFn } from '@tanstack/react-start';
 import type React from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Separator } from '~/components/ui/separator';
@@ -29,7 +30,6 @@ import {
   type ViewState,
   useTeamPage,
 } from './$teamId/use-team-page';
-import { useServerFn } from '@tanstack/react-start';
 
 // Re-export for test compatibility
 export { Breadcrumb };
@@ -127,13 +127,11 @@ function TeamPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasInitialScrolled = useRef(false);
 
+  // projectsRef lets the keyboard handler read latest projects without being in deps
+  const projectsRef = useRef(projects);
   useEffect(() => {
-    modeRef.current = mode;
-    viewRef.current = view;
-    overlayRef.current = overlay;
-    focusedIdxRef.current = focusedIdx;
     projectsRef.current = projects;
-  }, [mode, view, overlay, focusedIdx, projects]);
+  }, [projects]);
   // useLayoutEffect so the ref is current before the browser paints — avoids
   // a race where the user presses a key before the effect runs post-paint.
   const artefactViewRef = useRef(artefactView);
@@ -290,7 +288,10 @@ function TeamPage() {
           if (e.key === 'j') {
             setArtefactView((av) =>
               av?.kind === 'files'
-                ? { ...av, cursor: Math.min(av.cursor + 1, av.entries.length - 1) }
+                ? {
+                    ...av,
+                    cursor: Math.min(av.cursor + 1, av.entries.length - 1),
+                  }
                 : av,
             );
             e.preventDefault();
@@ -682,7 +683,9 @@ function TeamPage() {
           ) : (
             <DiffView
               diffText={artefactView.diffText}
-              stats={diffStats ?? { filesChanged: 0, insertions: 0, deletions: 0 }}
+              stats={
+                diffStats ?? { filesChanged: 0, insertions: 0, deletions: 0 }
+              }
             />
           )
         ) : (
