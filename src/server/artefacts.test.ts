@@ -236,7 +236,7 @@ describe('getProjectDiff', () => {
     // Modify the existing tracked README.md without staging or committing
     await writeFile(join(worktreeDir, 'README.md'), '# Modified\nNew content');
 
-    const result = await getProjectDiff(tmpDir, 'feature-wt', 'my-project');
+    const result = await getProjectDiff(tmpDir, 'feature-wt');
     expect(result.diff).toContain('README.md');
     expect(result.diff).toContain('+# Modified');
     expect(result.stats.filesChanged).toBeGreaterThan(0);

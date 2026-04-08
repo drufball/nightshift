@@ -99,14 +99,45 @@ export async function readTeamFile(
   return readFile(filePath, 'utf8');
 }
 
+/** Find the filesystem path of the worktree that has `branch` checked out. */
+function findWorktreeForBranch(
+  cwd: string,
+  branch: string,
+  execFileSync: typeof import('node:child_process')['execFileSync'],
+): string | null {
+  let output: string;
+  try {
+    output = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+      cwd,
+      stdio: 'pipe',
+    }).toString();
+  } catch {
+    return null;
+  }
+  // Porcelain format: blank-line-separated blocks of:
+  //   worktree <path>
+  //   HEAD <sha>
+  //   branch refs/heads/<name>   (or "detached")
+  for (const block of output.split('\n\n')) {
+    const lines = block.split('\n');
+    const pathLine = lines.find((l) => l.startsWith('worktree '));
+    const branchLine = lines.find((l) => l.startsWith('branch '));
+    if (!pathLine || !branchLine) continue;
+    const worktreePath = pathLine.slice('worktree '.length).trim();
+    const worktreeBranch = branchLine
+      .slice('branch '.length)
+      .trim()
+      .replace(/^refs\/heads\//, '');
+    if (worktreeBranch === branch) return worktreePath;
+  }
+  return null;
+}
+
 export async function getProjectDiff(
   cwd: string,
   branch: string,
-  projectName?: string,
 ): Promise<{ diff: string; stats: DiffStats }> {
   const { execFileSync } = await import('node:child_process');
-  const { existsSync } = await import('node:fs');
-  const { join } = await import('node:path');
   const ignorePatterns = await readDiffIgnore(cwd);
 
   // Committed changes on the branch vs HEAD
@@ -131,11 +162,9 @@ export async function getProjectDiff(
     rawNumstat = '';
   }
 
-  // Uncommitted changes (staged + unstaged) in the project worktree
-  const worktreePath = projectName
-    ? join(cwd, '.nightshift', 'worktrees', projectName)
-    : null;
-  if (worktreePath && existsSync(worktreePath)) {
+  // Uncommitted changes (staged + unstaged) from the branch's worktree
+  const worktreePath = findWorktreeForBranch(cwd, branch, execFileSync);
+  if (worktreePath) {
     let uncommittedDiff: string;
     try {
       uncommittedDiff = execFileSync('git', ['diff', 'HEAD'], {
@@ -277,8 +306,8 @@ export const getTeamFileContent = createServerFn({ method: 'GET' })
   });
 
 export const getProjectDiffFn = createServerFn({ method: 'GET' })
-  .inputValidator((data: { branch: string; projectName?: string }) => data)
+  .inputValidator((data: { branch: string }) => data)
   .handler(async ({ data }) => {
     const cwd = await resolveCwd();
-    return getProjectDiff(cwd, data.branch, data.projectName);
+    return getProjectDiff(cwd, data.branch);
   });

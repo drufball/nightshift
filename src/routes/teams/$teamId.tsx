@@ -164,7 +164,7 @@ function TeamPage() {
     const project = projects.find((p) => p.id === view.projectId);
     if (!project) return;
     getProjectDiffFn({
-      data: { branch: project.branch, projectName: project.name },
+      data: { branch: project.branch },
     }).then((result) => {
       setDiffStats(result.stats);
     });
@@ -247,7 +247,7 @@ function TeamPage() {
     );
     if (!project) return;
     const result = await getProjectDiffFnRef.current({
-      data: { branch: project.branch, projectName: project.name },
+      data: { branch: project.branch },
     });
     setArtefactView({ kind: 'diff', diffText: result.diff, stats: result.stats });
   }
@@ -335,7 +335,8 @@ function TeamPage() {
             return;
           }
         }
-        return;
+        // Unhandled key in artefact view — fall through to normal mode so
+        // pickers (p, a, t, f) and other shortcuts still work.
       }
 
       if (currentMode === 'insert') {
@@ -387,7 +388,7 @@ function TeamPage() {
             if (proj) {
               getProjectDiffFnRef
                 .current({
-                  data: { branch: proj.branch, projectName: proj.name },
+                  data: { branch: proj.branch },
                 })
                 .then((result) => {
                   setArtefactView({
