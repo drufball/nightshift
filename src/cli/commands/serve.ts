@@ -6,16 +6,21 @@ export function registerServe(program: Command): void {
   program
     .command('serve')
     .description('Start the nightshift management UI')
-    .action(() => {
+    .option('--port <number>', 'Port to listen on', '3000')
+    .action((opts: { port: string }) => {
       // Resolve the package root from this file's location: src/cli/commands/ -> ../../..
       const packageRoot = join(import.meta.dir, '..', '..', '..');
 
       const projectDir = process.cwd();
-      const child = spawn('bun', ['--bun', 'run', 'vite', 'dev'], {
-        cwd: packageRoot,
-        stdio: 'inherit',
-        env: { ...process.env, NIGHTSHIFT_PROJECT_DIR: projectDir },
-      });
+      const child = spawn(
+        'bun',
+        ['--bun', 'run', 'vite', 'dev', '--port', opts.port],
+        {
+          cwd: packageRoot,
+          stdio: 'inherit',
+          env: { ...process.env, NIGHTSHIFT_PROJECT_DIR: projectDir },
+        },
+      );
 
       child.on('error', (err) => {
         console.error(`Failed to start server: ${err.message}`);
