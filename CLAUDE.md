@@ -17,14 +17,15 @@ All UI work must heavily favour reuse from the design system at `src/components/
 ## Testing & lint
 
 ```bash
-bun test          # run all tests
-bun test:watch    # watch mode
-bun lint          # check
-bun lint:fix      # auto-fix
-bun typecheck     # TypeScript type check (tsc --noEmit)
+bun test                # run all tests
+bun test:watch          # watch mode
+bun test --coverage     # run tests with line coverage report
+bun lint                # check
+bun lint:fix            # auto-fix
+bun typecheck           # TypeScript type check (tsc --noEmit)
 ```
 
-All three must pass before committing — enforced by the pre-commit hook at `.claude/hooks/pre-commit.sh`.
+All four must pass before committing — enforced by the pre-commit hook at `.claude/hooks/pre-commit.sh`. Coverage must stay above 85% (excluding shadcn UI primitives, generated files, and thin layout shells — see `coveragePathIgnorePatterns` in `bunfig.toml`).
 
 Tests are co-located with source files (e.g. `init.ts` + `init.test.ts`). Shared test helpers and tmp filesystem fixtures live in `src/cli/test-helpers.ts`.
 

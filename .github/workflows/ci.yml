@@ -21,3 +21,13 @@ jobs:
 
       - name: Test
         run: bun test
+
+      - name: Coverage
+        run: |
+          bun test --coverage 2>&1 | tee /tmp/coverage.txt
+          pct=$(awk '/All files/ {gsub(/%/,"",$4); print int($4)}' /tmp/coverage.txt)
+          echo "Line coverage: ${pct}%"
+          if [ "${pct}" -lt 85 ]; then
+            echo "Coverage ${pct}% is below the 85% threshold"
+            exit 1
+          fi
