@@ -49,7 +49,7 @@ import {
   flattenSessionBlocks,
   msgToNavBlocks,
   navBlockText,
-} from './nav-blocks';
+} from './-nav-blocks';
 
 // ── Types (re-exported for use in $teamId.tsx) ─────────────────────────────
 

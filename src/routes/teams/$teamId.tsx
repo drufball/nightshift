@@ -16,20 +16,20 @@ import {
 import { getTeamView } from '~/server/team-data';
 import type { TeamMeta } from '~/server/teams';
 import { listTeams } from '~/server/teams';
-import { AgentSessionView } from './$teamId/agent-session-view';
-import { Breadcrumb } from './$teamId/breadcrumb';
-import { ChatView } from './$teamId/chat-view';
-import { DiffView } from './$teamId/diff-view';
-import { FileContentView } from './$teamId/file-content-view';
-import { FilesView } from './$teamId/files-view';
-import { InlinePicker } from './$teamId/inline-picker';
-import { navBlockText } from './$teamId/nav-blocks';
+import { AgentSessionView } from './$teamId/-agent-session-view';
+import { Breadcrumb } from './$teamId/-breadcrumb';
+import { ChatView } from './$teamId/-chat-view';
+import { DiffView } from './$teamId/-diff-view';
+import { FileContentView } from './$teamId/-file-content-view';
+import { FilesView } from './$teamId/-files-view';
+import { InlinePicker } from './$teamId/-inline-picker';
+import { navBlockText } from './$teamId/-nav-blocks';
 import {
   type AgentInfo,
   type OverlayState,
   type ViewState,
   useTeamPage,
-} from './$teamId/use-team-page';
+} from './$teamId/-use-team-page';
 
 // Re-export for test compatibility
 export { Breadcrumb };
@@ -46,7 +46,7 @@ export const Route = createFileRoute('/teams/$teamId')({
 });
 
 // ── Types re-exported for test compatibility ────────────────────────────────
-export type { ViewState } from './$teamId/use-team-page';
+export type { ViewState } from './$teamId/-use-team-page';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 

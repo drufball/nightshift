@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useRef } from 'react';
-import { AgentSessionView, SessionBlockContent } from './agent-session-view';
-import type { NavBlock } from './nav-blocks';
+import { AgentSessionView, SessionBlockContent } from './-agent-session-view';
+import type { NavBlock } from './-nav-blocks';
 
 afterEach(cleanup);
 
