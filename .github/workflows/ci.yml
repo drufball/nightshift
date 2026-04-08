@@ -20,9 +20,6 @@ jobs:
         run: bun run lint
 
       - name: Test
-        run: bun test
-
-      - name: Coverage
         run: |
           bun test --coverage 2>&1 | tee /tmp/coverage.txt
           pct=$(awk '/All files/ {gsub(/%/,"",$4); print int($4)}' /tmp/coverage.txt)

@@ -130,17 +130,21 @@ export function useTeamPage(initialData: TeamPageLoaderData) {
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
 
   // Sync state when navigating to a different team (loader returns new data
-  // but the component is reused, so useState initializers don't re-run)
+  // but the component is reused, so useState initializers don't re-run).
+  // Keyed on teamId (not the whole initialData object) to avoid infinite loops
+  // when the parent passes a freshly-constructed object on every render.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally sync all team state when teamId changes
   useEffect(() => {
     setMessages(initialData.messages);
     setAgents(initialData.agents);
     setProjects(initialData.projects);
     setAllTeams(initialData.teams);
-    setView({ type: 'chat' });
+    setView((prev) => (prev.type === 'chat' ? prev : { type: 'chat' }));
     setOverlay(null);
     setFocusedIdx(-1);
     setSessionData(null);
-  }, [initialData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId]);
 
   // ── Refs (kept in sync via effects; used inside global keydown handler) ─
 

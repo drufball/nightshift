@@ -55,11 +55,13 @@ mock.module('~/server/teams', () => ({
 // ---------------------------------------------------------------------------
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { act, renderHook } from '@testing-library/react';
+import { act, cleanup, renderHook } from '@testing-library/react';
 import { useTeamPage } from './use-team-page';
 import type { TeamPageLoaderData } from './use-team-page';
 
 afterEach(() => {
+  // Unmount any renderHook instances so their effects don't fire between tests
+  cleanup();
   mockNavigate.mockClear();
   mockSendTeamMessage.mockClear();
   mockGetLatestMessages.mockClear();
@@ -599,10 +601,10 @@ describe('useTeamPage – navigateBack', () => {
     expect(call.to).toBe('/');
   });
 
-  it('returns from project-chat to chat', () => {
+  it('returns from project-chat to chat', async () => {
     const { result } = renderHook(() => useTeamPage(makeLoaderData()));
 
-    act(() => {
+    await act(async () => {
       result.current.setView({
         type: 'project-chat',
         projectId: 'p1',
@@ -618,10 +620,10 @@ describe('useTeamPage – navigateBack', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it('returns from agent-session to chat when no project context', () => {
+  it('returns from agent-session to chat when no project context', async () => {
     const { result } = renderHook(() => useTeamPage(makeLoaderData()));
 
-    act(() => {
+    await act(async () => {
       result.current.setView({ type: 'agent-session', agentName: 'aria' });
     });
 
@@ -632,10 +634,10 @@ describe('useTeamPage – navigateBack', () => {
     expect(result.current.view).toEqual({ type: 'chat' });
   });
 
-  it('returns from agent-session to project-chat when projectId is set', () => {
+  it('returns from agent-session to project-chat when projectId is set', async () => {
     const { result } = renderHook(() => useTeamPage(makeLoaderData()));
 
-    act(() => {
+    await act(async () => {
       result.current.setView({
         type: 'agent-session',
         agentName: 'aria',
@@ -644,7 +646,7 @@ describe('useTeamPage – navigateBack', () => {
       });
     });
 
-    act(() => {
+    await act(async () => {
       result.current.navigateBack();
     });
 
