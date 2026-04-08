@@ -53,7 +53,7 @@ export type { ViewState } from './$teamId/use-team-page';
 type ArtefactView =
   | { kind: 'files'; path: string[]; entries: FileEntry[]; cursor: number }
   | { kind: 'file-content'; relPath: string[]; content: string }
-  | { kind: 'diff'; diffText: string; stats: DiffStats };
+  | { kind: 'diff'; diffText: string };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -127,19 +127,19 @@ function TeamPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasInitialScrolled = useRef(false);
 
-  // ── Artefact refs ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    modeRef.current = mode;
+    viewRef.current = view;
+    overlayRef.current = overlay;
+    focusedIdxRef.current = focusedIdx;
+    projectsRef.current = projects;
+  }, [mode, view, overlay, focusedIdx, projects]);
   // useLayoutEffect so the ref is current before the browser paints — avoids
   // a race where the user presses a key before the effect runs post-paint.
   const artefactViewRef = useRef(artefactView);
   useLayoutEffect(() => {
     artefactViewRef.current = artefactView;
   }, [artefactView]);
-
-  // projectsRef lets the keyboard handler read latest projects without being in deps
-  const projectsRef = useRef(projects);
-  useEffect(() => {
-    projectsRef.current = projects;
-  }, [projects]);
 
   // ── Artefact server functions ──────────────────────────────────────────────
   const getTeamFilesFn = useServerFn(getTeamFiles);
@@ -249,7 +249,8 @@ function TeamPage() {
     const result = await getProjectDiffFnRef.current({
       data: { branch: project.branch },
     });
-    setArtefactView({ kind: 'diff', diffText: result.diff, stats: result.stats });
+    setDiffStats(result.stats);
+    setArtefactView({ kind: 'diff', diffText: result.diff });
   }
 
   // ── Global keyboard handler ───────────────────────────────────────────────
@@ -263,15 +264,6 @@ function TeamPage() {
       const blocks = navBlocksRef.current;
       const currentArtefact = artefactViewRef.current;
 
-      // Helper: navigate the file browser to a path via ref
-      function browseTo(path: string[]) {
-        getTeamFilesFnRef
-          .current({ data: { teamId, subPath: path } })
-          .then((entries) => {
-            setArtefactView({ kind: 'files', path, entries, cursor: 0 });
-          });
-      }
-
       // Artefact view keyboard handling (takes priority)
       if (currentArtefact !== null) {
         if (e.key === 'Escape') {
@@ -282,12 +274,12 @@ function TeamPage() {
         if (e.key === '-') {
           if (currentArtefact.kind === 'files') {
             if (currentArtefact.path.length > 0) {
-              browseTo(currentArtefact.path.slice(0, -1));
+              openFilesBrowser(currentArtefact.path.slice(0, -1));
             } else {
               setArtefactView(null);
             }
           } else if (currentArtefact.kind === 'file-content') {
-            browseTo(currentArtefact.relPath.slice(0, -1));
+            openFilesBrowser(currentArtefact.relPath.slice(0, -1));
           } else {
             setArtefactView(null);
           }
@@ -318,7 +310,7 @@ function TeamPage() {
             if (entry) {
               const newPath = [...currentArtefact.path, entry.name];
               if (entry.type === 'dir') {
-                browseTo(newPath);
+                openFilesBrowser(newPath);
               } else {
                 getTeamFileContentFnRef
                   .current({ data: { teamId, relPath: newPath } })
@@ -376,28 +368,13 @@ function TeamPage() {
           break;
 
         case 'f':
-          browseTo([]);
+          openFilesBrowser([]);
           e.preventDefault();
           break;
 
         case 'd':
           if (currentView.type === 'project-chat') {
-            const proj = projectsRef.current.find(
-              (p) => p.id === currentView.projectId,
-            );
-            if (proj) {
-              getProjectDiffFnRef
-                .current({
-                  data: { branch: proj.branch },
-                })
-                .then((result) => {
-                  setArtefactView({
-                    kind: 'diff',
-                    diffText: result.diff,
-                    stats: result.stats,
-                  });
-                });
-            }
+            openDiffViewer();
           }
           e.preventDefault();
           break;
@@ -703,7 +680,10 @@ function TeamPage() {
               content={artefactView.content}
             />
           ) : (
-            <DiffView diffText={artefactView.diffText} stats={artefactView.stats} />
+            <DiffView
+              diffText={artefactView.diffText}
+              stats={diffStats ?? { filesChanged: 0, insertions: 0, deletions: 0 }}
+            />
           )
         ) : (
           <>

@@ -140,53 +140,68 @@ export async function getProjectDiff(
   const { execFileSync } = await import('node:child_process');
   const ignorePatterns = await readDiffIgnore(cwd);
 
-  // Committed changes on the branch vs HEAD
-  let rawDiff: string;
+  // Get the base commit (HEAD of the main repo) to diff against
+  let baseSha: string;
   try {
-    rawDiff = execFileSync('git', ['diff', `HEAD...${branch}`], {
+    baseSha = execFileSync('git', ['rev-parse', 'HEAD'], {
       cwd,
       stdio: 'pipe',
-    }).toString();
+    })
+      .toString()
+      .trim();
   } catch {
-    rawDiff = '';
+    baseSha = '';
   }
 
+  // If a worktree exists for the branch, run a single git diff from there.
+  // This is equivalent to `git diff main` — it captures committed changes,
+  // staged changes, and unstaged tracked changes all in one unified diff,
+  // avoiding duplicate sections when a file has both committed and uncommitted changes.
+  const worktreePath = baseSha
+    ? findWorktreeForBranch(cwd, branch, execFileSync)
+    : null;
+
+  let rawDiff: string;
   let rawNumstat: string;
-  try {
-    rawNumstat = execFileSync(
-      'git',
-      ['diff', '--numstat', `HEAD...${branch}`],
-      { cwd, stdio: 'pipe' },
-    ).toString();
-  } catch {
-    rawNumstat = '';
-  }
 
-  // Uncommitted changes (staged + unstaged) from the branch's worktree
-  const worktreePath = findWorktreeForBranch(cwd, branch, execFileSync);
   if (worktreePath) {
-    let uncommittedDiff: string;
     try {
-      uncommittedDiff = execFileSync('git', ['diff', 'HEAD'], {
+      rawDiff = execFileSync('git', ['diff', baseSha], {
         cwd: worktreePath,
         stdio: 'pipe',
       }).toString();
     } catch {
-      uncommittedDiff = '';
+      rawDiff = '';
     }
 
-    let uncommittedNumstat: string;
     try {
-      uncommittedNumstat = execFileSync('git', ['diff', '--numstat', 'HEAD'], {
+      rawNumstat = execFileSync('git', ['diff', '--numstat', baseSha], {
         cwd: worktreePath,
         stdio: 'pipe',
       }).toString();
     } catch {
-      uncommittedNumstat = '';
+      rawNumstat = '';
+    }
+  } else {
+    // Fallback: no worktree available, show committed changes only
+    try {
+      rawDiff = execFileSync('git', ['diff', `HEAD...${branch}`], {
+        cwd,
+        stdio: 'pipe',
+      }).toString();
+    } catch {
+      rawDiff = '';
     }
 
-    if (uncommittedDiff) rawDiff += uncommittedDiff;
-    if (uncommittedNumstat) rawNumstat += `\n${uncommittedNumstat}`;
+    try {
+      rawNumstat = execFileSync(
+        'git',
+        ['diff', '--numstat', `HEAD...${branch}`],
+        { cwd, stdio: 'pipe' },
+      ).toString();
+    } catch {
+      rawNumstat = '';
+    }
   }
 
   const diff = filterDiff(rawDiff, ignorePatterns);

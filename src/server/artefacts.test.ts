@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { execSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { initNightshift } from '~/cli/commands/init';
+import { createProject } from '~/cli/commands/project';
 import { createGitRepo, createTmpDir, removeTmpDir } from '~/cli/test-helpers';
+import { openDb } from '~/db/index';
 import {
   getProjectDiff,
   listTeamFiles,
@@ -239,6 +242,133 @@ describe('getProjectDiff', () => {
     const result = await getProjectDiff(tmpDir, 'feature-wt');
     expect(result.diff).toContain('README.md');
     expect(result.diff).toContain('+# Modified');
+    expect(result.stats.filesChanged).toBeGreaterThan(0);
+  });
+
+  it('includes staged (not yet committed) changes from project worktree', async () => {
+    const worktreeDir = join(tmpDir, '.nightshift', 'worktrees', 'my-project');
+    execSync('git branch feature-staged', { cwd: tmpDir, stdio: 'pipe' });
+    execSync(`git worktree add "${worktreeDir}" feature-staged`, {
+      cwd: tmpDir,
+      stdio: 'pipe',
+    });
+
+    // Stage a new file without committing
+    await writeFile(join(worktreeDir, 'staged.md'), '# Staged\nNew content');
+    execSync('git add staged.md', { cwd: worktreeDir, stdio: 'pipe' });
+
+    const result = await getProjectDiff(tmpDir, 'feature-staged');
+    expect(result.diff).toContain('staged.md');
+    expect(result.diff).toContain('+# Staged');
+    expect(result.stats.filesChanged).toBeGreaterThan(0);
+  });
+
+  it('includes committed, staged, and unstaged changes together', async () => {
+    // Committed change on branch
+    execSync('git checkout -b feature-all', { cwd: tmpDir, stdio: 'pipe' });
+    await writeFile(join(tmpDir, 'committed.md'), '# Committed\nContent');
+    execSync('git add committed.md', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -m "Add committed file"', {
+      cwd: tmpDir,
+      stdio: 'pipe',
+    });
+    execSync('git checkout -', { cwd: tmpDir, stdio: 'pipe' });
+
+    const worktreeDir = join(tmpDir, '.nightshift', 'worktrees', 'my-project');
+    execSync(`git worktree add "${worktreeDir}" feature-all`, {
+      cwd: tmpDir,
+      stdio: 'pipe',
+    });
+
+    // Staged change in worktree
+    await writeFile(join(worktreeDir, 'staged.md'), '# Staged\nContent');
+    execSync('git add staged.md', { cwd: worktreeDir, stdio: 'pipe' });
+
+    // Unstaged change in worktree
+    await writeFile(
+      join(worktreeDir, 'README.md'),
+      '# Modified README\nUnstaged change',
+    );
+
+    const result = await getProjectDiff(tmpDir, 'feature-all');
+    expect(result.diff).toContain('committed.md');
+    expect(result.diff).toContain('staged.md');
+    expect(result.diff).toContain('README.md');
+    expect(result.stats.filesChanged).toBeGreaterThanOrEqual(3);
+  });
+
+  it('shows unified diff for file with both committed and uncommitted changes', async () => {
+    // Commit a change to README.md on the branch
+    execSync('git checkout -b feature-overlap', { cwd: tmpDir, stdio: 'pipe' });
+    await writeFile(join(tmpDir, 'README.md'), '# Committed README');
+    execSync('git add README.md', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git commit -m "Modify README"', { cwd: tmpDir, stdio: 'pipe' });
+    execSync('git checkout -', { cwd: tmpDir, stdio: 'pipe' });
+
+    const worktreeDir = join(tmpDir, '.nightshift', 'worktrees', 'my-project');
+    execSync(`git worktree add "${worktreeDir}" feature-overlap`, {
+      cwd: tmpDir,
+      stdio: 'pipe',
+    });
+
+    // Additional uncommitted change to the same file
+    await writeFile(join(worktreeDir, 'README.md'), '# Working README');
+
+    const result = await getProjectDiff(tmpDir, 'feature-overlap');
+
+    // Should appear only once (not duplicated as committed section + uncommitted section)
+    expect(result.diff.match(/diff --git a\/README\.md/g)?.length).toBe(1);
+
+    // Stats should count README.md once, not twice
+    expect(result.stats.filesChanged).toBe(1);
+
+    // Should show total change: original → working (not original → committed)
+    expect(result.diff).toContain('-# Test Repo');
+    expect(result.diff).toContain('+# Working README');
+  });
+});
+
+describe('getProjectDiff (integration with createProject)', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await createTmpDir();
+    await createGitRepo(tmpDir);
+    await initNightshift(tmpDir);
+  });
+
+  afterEach(async () => {
+    await removeTmpDir(tmpDir);
+  });
+
+  it('shows unstaged tracked changes from a project created via createProject', async () => {
+    const db = openDb(':memory:');
+    await createProject(tmpDir, 'my-feature', 'team', db);
+
+    const worktreeDir = join(tmpDir, '.nightshift', 'worktrees', 'my-feature');
+
+    // Make an unstaged tracked change in the worktree
+    await writeFile(join(worktreeDir, 'README.md'), '# Work in progress');
+
+    const result = await getProjectDiff(tmpDir, 'my-feature');
+    expect(result.diff).toContain('README.md');
+    expect(result.diff).toContain('+# Work in progress');
+    expect(result.stats.filesChanged).toBeGreaterThan(0);
+  });
+
+  it('shows staged (not committed) changes from a project created via createProject', async () => {
+    const db = openDb(':memory:');
+    await createProject(tmpDir, 'my-feature', 'team', db);
+
+    const worktreeDir = join(tmpDir, '.nightshift', 'worktrees', 'my-feature');
+
+    // Make a staged change in the worktree
+    await writeFile(join(worktreeDir, 'new-work.md'), '# New work');
+    execSync('git add new-work.md', { cwd: worktreeDir, stdio: 'pipe' });
+
+    const result = await getProjectDiff(tmpDir, 'my-feature');
+    expect(result.diff).toContain('new-work.md');
+    expect(result.diff).toContain('+# New work');
     expect(result.stats.filesChanged).toBeGreaterThan(0);
   });
 });
