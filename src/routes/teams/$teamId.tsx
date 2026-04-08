@@ -1,34 +1,23 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useServerFn } from '@tanstack/react-start';
+import { createFileRoute } from '@tanstack/react-router';
 import type React from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Separator } from '~/components/ui/separator';
-import type { Message } from '~/db/messages';
 import type { Project } from '~/db/projects';
 import type { AgentSession } from '~/db/sessions';
 import { cn } from '~/lib/utils';
-import {
-  type AgentSessionMessage,
-  createNewProject,
-  getAgentSession,
-  getAgentStatuses,
-  getLatestMessages,
-  getProjectMessages as getProjectMessagesFn,
-  getTeamView,
-  sendProjectMessage as sendProjectMessageFn,
-  sendTeamMessage,
-} from '~/server/team-data';
+import { getTeamView } from '~/server/team-data';
 import type { TeamMeta } from '~/server/teams';
 import { listTeams } from '~/server/teams';
 import { AgentSessionView } from './$teamId/agent-session-view';
 import { Breadcrumb } from './$teamId/breadcrumb';
 import { ChatView } from './$teamId/chat-view';
+import { navBlockText } from './$teamId/nav-blocks';
 import {
-  type NavBlock,
-  flattenSessionBlocks,
-  msgToNavBlocks,
-  navBlockText,
-} from './$teamId/nav-blocks';
+  type AgentInfo,
+  type OverlayState,
+  type ViewState,
+  useTeamPage,
+} from './$teamId/use-team-page';
 
 // Re-export for test compatibility
 export { Breadcrumb };
@@ -44,37 +33,8 @@ export const Route = createFileRoute('/teams/$teamId')({
   component: TeamPage,
 });
 
-// ── Types ──────────────────────────────────────────────────────────────────
-
-type AgentInfo = {
-  name: string;
-  isLead: boolean;
-  status: 'idle' | 'working';
-  statusText: string | null;
-};
-
-type SessionData = {
-  messages: AgentSessionMessage[];
-  status: 'idle' | 'working';
-  statusText: string | null;
-};
-
-export type ViewState =
-  | { type: 'chat' }
-  | { type: 'project-chat'; projectId: string; projectName: string }
-  | {
-      type: 'agent-session';
-      agentName: string;
-      projectId?: string;
-      projectName?: string;
-    };
-
-type OverlayState =
-  | { kind: 'teams'; cursor: number }
-  | { kind: 'projects'; cursor: number }
-  | { kind: 'projects-create' }
-  | { kind: 'agents'; cursor: number }
-  | { kind: 'mention'; atStart: number; query: string; cursor: number };
+// ── Types re-exported for test compatibility ────────────────────────────────
+export type { ViewState } from './$teamId/use-team-page';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -89,190 +49,62 @@ export function applySessionsToAgents(
   });
 }
 
+// Suppress unused import warning – AgentSessionMessage type is used by SessionData
+// inside use-team-page.ts; re-export keeps the import live here.
+export type { AgentInfo, OverlayState };
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 function TeamPage() {
   const initialData = Route.useLoaderData();
   const { teamId } = Route.useParams();
-  const navigate = useNavigate();
 
-  const [messages, setMessages] = useState<Message[]>(initialData.messages);
-  const [agents, setAgents] = useState<AgentInfo[]>(initialData.agents);
-  const [projects, setProjects] = useState<Project[]>(initialData.projects);
-  const [allTeams, setAllTeams] = useState<TeamMeta[]>(initialData.teams);
-  const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
+  const {
+    messages,
+    agents,
+    projects,
+    input,
+    setInput,
+    sending,
+    mode,
+    setMode,
+    view,
+    setView,
+    overlay,
+    setOverlay,
+    focusedIdx,
+    setFocusedIdx,
+    projectMessages,
+    projectSending,
+    sessionData,
+    setSessionData,
+    modeRef,
+    viewRef,
+    overlayRef,
+    focusedIdxRef,
+    navBlocksRef,
+    navBlocks,
+    pickerItems,
+    mentionFilteredAgents,
+    workingAgents,
+    isSending,
+    handleSend,
+    handleInputChange,
+    handleCreateProject,
+    openTeamsPicker,
+    openProjectsPicker,
+    openAgentsPicker,
+    navigateBack,
+    navigateToTeam,
+    navigate,
+  } = useTeamPage({ ...initialData, teamId });
 
-  const [mode, setMode] = useState<'insert' | 'normal'>('normal');
-  const [view, setView] = useState<ViewState>({ type: 'chat' });
-  const [overlay, setOverlay] = useState<OverlayState | null>(null);
-  const [focusedIdx, setFocusedIdx] = useState(-1);
-
-  const [projectMessages, setProjectMessages] = useState<Message[]>([]);
-  const [projectSending, setProjectSending] = useState(false);
-  const [sessionData, setSessionData] = useState<SessionData | null>(null);
-
-  // Sync state when navigating to a different team
-  useEffect(() => {
-    setMessages(initialData.messages);
-    setAgents(initialData.agents);
-    setProjects(initialData.projects);
-    setAllTeams(initialData.teams);
-    setView({ type: 'chat' });
-    setOverlay(null);
-    setFocusedIdx(-1);
-    setSessionData(null);
-  }, [initialData]);
-
-  const modeRef = useRef(mode);
-  const viewRef = useRef(view);
-  const overlayRef = useRef(overlay);
-  const focusedIdxRef = useRef(focusedIdx);
-  const navBlocksRef = useRef<NavBlock[]>([]);
+  // ── DOM-only refs (tightly coupled to JSX) ─────────────────────────────────
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasInitialScrolled = useRef(false);
 
-  useEffect(() => {
-    modeRef.current = mode;
-  }, [mode]);
-  useEffect(() => {
-    viewRef.current = view;
-  }, [view]);
-  useEffect(() => {
-    overlayRef.current = overlay;
-  }, [overlay]);
-  useEffect(() => {
-    focusedIdxRef.current = focusedIdx;
-  }, [focusedIdx]);
-
-  const sendFn = useServerFn(sendTeamMessage);
-  const getStatusesFn = useServerFn(getAgentStatuses);
-  const getAgentSessionFn = useServerFn(getAgentSession);
-  const getMessagesFn = useServerFn(getLatestMessages);
-  const getProjectMsgsFn = useServerFn(getProjectMessagesFn);
-  const sendProjectMsgFn = useServerFn(sendProjectMessageFn);
-  const createProjectFn = useServerFn(createNewProject);
-
-  const navBlocks: NavBlock[] = useMemo(() => {
-    if (view.type === 'chat') return messages.flatMap(msgToNavBlocks);
-    if (view.type === 'project-chat')
-      return projectMessages.flatMap(msgToNavBlocks);
-    if (view.type === 'agent-session' && sessionData)
-      return flattenSessionBlocks(sessionData.messages);
-    return [];
-  }, [view, messages, projectMessages, sessionData]);
-
-  useEffect(() => {
-    navBlocksRef.current = navBlocks;
-  }, [navBlocks]);
-
-  const pickerItems = useMemo(() => {
-    if (overlay?.kind === 'teams') {
-      return allTeams.filter((t) =>
-        t.name.toLowerCase().includes(input.toLowerCase()),
-      );
-    }
-    if (overlay?.kind === 'projects') {
-      return projects.filter((p) =>
-        p.name.toLowerCase().includes(input.toLowerCase()),
-      );
-    }
-    if (overlay?.kind === 'agents') {
-      return agents.filter((a) =>
-        a.name.toLowerCase().includes(input.toLowerCase()),
-      );
-    }
-    return [];
-  }, [overlay, allTeams, projects, agents, input]);
-
-  const mentionFilteredAgents = useMemo(() => {
-    if (!overlay || overlay.kind !== 'mention') return [];
-    return agents.filter((a) =>
-      a.name.toLowerCase().includes(overlay.query.toLowerCase()),
-    );
-  }, [overlay, agents]);
-
-  const showInlinePicker =
-    overlay !== null &&
-    overlay.kind !== 'projects-create' &&
-    (overlay.kind !== 'mention' || mentionFilteredAgents.length > 0);
-
-  const currentProjectId = view.type === 'project-chat' ? view.projectId : null;
-
-  const selectedAgentStatus =
-    view.type === 'agent-session'
-      ? (agents.find(
-          (a) =>
-            a.name ===
-            (view as { type: 'agent-session'; agentName: string }).agentName,
-        )?.status ?? 'idle')
-      : 'idle';
-
-  useEffect(() => {
-    if (!sending) return;
-    const id = setInterval(async () => {
-      const [sessions, freshMessages] = await Promise.all([
-        getStatusesFn({ data: { teamId } }),
-        getMessagesFn({ data: { teamId } }),
-      ]);
-      setAgents((prev) => applySessionsToAgents(prev, sessions));
-      setMessages(freshMessages);
-    }, 1500);
-    return () => clearInterval(id);
-  }, [sending, teamId, getStatusesFn, getMessagesFn]);
-
-  useEffect(() => {
-    if (!projectSending || !currentProjectId) return;
-    const projectId = currentProjectId;
-    const id = setInterval(async () => {
-      const [sessions, freshMsgs] = await Promise.all([
-        getStatusesFn({ data: { teamId, projectId } }),
-        getProjectMsgsFn({ data: { teamId, projectId } }),
-      ]);
-      setAgents((prev) => applySessionsToAgents(prev, sessions));
-      setProjectMessages(freshMsgs as Message[]);
-    }, 1500);
-    return () => clearInterval(id);
-  }, [
-    projectSending,
-    currentProjectId,
-    teamId,
-    getStatusesFn,
-    getProjectMsgsFn,
-  ]);
-
-  useEffect(() => {
-    if (view.type !== 'agent-session') return;
-    const { agentName, projectId } = view;
-    async function fetchSession() {
-      const data = await getAgentSessionFn({
-        data: { teamId, agentName, projectId },
-      });
-      setSessionData(data as SessionData);
-      setTimeout(
-        () => bottomRef.current?.scrollIntoView({ behavior: 'instant' }),
-        50,
-      );
-    }
-    fetchSession();
-    if (selectedAgentStatus !== 'working') return;
-    const id = setInterval(fetchSession, 2000);
-    return () => clearInterval(id);
-  }, [view, selectedAgentStatus, teamId, getAgentSessionFn]);
-
-  useEffect(() => {
-    if (view.type !== 'project-chat') return;
-    const { projectId } = view;
-    getProjectMsgsFn({ data: { teamId, projectId } }).then((msgs) => {
-      setProjectMessages(msgs as Message[]);
-      setTimeout(
-        () => bottomRef.current?.scrollIntoView({ behavior: 'instant' }),
-        50,
-      );
-    });
-  }, [view, teamId, getProjectMsgsFn]);
-
+  // Scroll to bottom when messages change
   // biome-ignore lint/correctness/useExhaustiveDependencies: messages/projectMessages trigger scroll
   useEffect(() => {
     const behavior = hasInitialScrolled.current ? 'smooth' : 'instant';
@@ -280,6 +112,7 @@ function TeamPage() {
     bottomRef.current?.scrollIntoView({ behavior });
   }, [messages, projectMessages]);
 
+  // Auto-resize textarea
   // biome-ignore lint/correctness/useExhaustiveDependencies: input triggers DOM scrollHeight recalc
   useEffect(() => {
     const el = inputRef.current;
@@ -288,66 +121,29 @@ function TeamPage() {
     el.style.height = `${el.scrollHeight}px`;
   }, [input]);
 
-  async function handleTeamSend(content: string) {
-    setSending(true);
-    const userMsg: Message = {
-      id: crypto.randomUUID(),
-      team_id: teamId,
-      project_id: null,
-      sender: 'user',
-      content,
-      mentions: '[]',
-      created_at: Date.now(),
-    };
-    setMessages((prev) => [...prev, userMsg]);
-    try {
-      await sendFn({ data: { teamId, content } });
-      const [finalMessages, sessions] = await Promise.all([
-        getMessagesFn({ data: { teamId } }),
-        getStatusesFn({ data: { teamId } }),
-      ]);
-      setMessages(finalMessages);
-      setAgents((prev) => applySessionsToAgents(prev, sessions));
-    } finally {
-      setSending(false);
+  // Scroll to bottom after agent session loads
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionData triggers scroll
+  useEffect(() => {
+    if (view.type !== 'agent-session') return;
+    if (sessionData) {
+      setTimeout(
+        () => bottomRef.current?.scrollIntoView({ behavior: 'instant' }),
+        50,
+      );
     }
-  }
+  }, [sessionData]);
 
-  async function handleProjectSend(projectId: string, content: string) {
-    setProjectSending(true);
-    const userMsg: Message = {
-      id: crypto.randomUUID(),
-      team_id: teamId,
-      project_id: projectId,
-      sender: 'user',
-      content,
-      mentions: '[]',
-      created_at: Date.now(),
-    };
-    setProjectMessages((prev) => [...prev, userMsg]);
-    try {
-      await sendProjectMsgFn({ data: { teamId, projectId, content } });
-      const [finalMsgs, sessions] = await Promise.all([
-        getProjectMsgsFn({ data: { teamId, projectId } }),
-        getStatusesFn({ data: { teamId } }),
-      ]);
-      setProjectMessages(finalMsgs as Message[]);
-      setAgents((prev) => applySessionsToAgents(prev, sessions));
-    } finally {
-      setProjectSending(false);
+  // Scroll to bottom after project messages load
+  // biome-ignore lint/correctness/useExhaustiveDependencies: projectMessages triggers scroll
+  useEffect(() => {
+    if (view.type !== 'project-chat') return;
+    if (projectMessages.length > 0) {
+      setTimeout(
+        () => bottomRef.current?.scrollIntoView({ behavior: 'instant' }),
+        50,
+      );
     }
-  }
-
-  function handleSend() {
-    const content = input.trim();
-    if (!content) return;
-    setInput('');
-    if (view.type === 'project-chat') {
-      handleProjectSend(view.projectId, content);
-    } else {
-      handleTeamSend(content);
-    }
-  }
+  }, [view]);
 
   function insertMention(name: string, atStart: number) {
     const textarea = inputRef.current;
@@ -369,6 +165,7 @@ function TeamPage() {
   }
 
   // ── Global keyboard handler ───────────────────────────────────────────────
+  // biome-ignore lint/correctness/useExhaustiveDependencies: handler intentionally reads latest state via refs; only navigate triggers re-registration
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       const currentMode = modeRef.current;
@@ -414,51 +211,25 @@ function TeamPage() {
           break;
 
         case 'p':
-          setOverlay({ kind: 'projects', cursor: 0 });
-          setInput('');
-          setMode('insert');
+          openProjectsPicker();
           inputRef.current?.focus();
-          setFocusedIdx(-1);
           e.preventDefault();
           break;
 
         case 'a':
-          setOverlay({ kind: 'agents', cursor: 0 });
-          setInput('');
-          setMode('insert');
+          openAgentsPicker();
           inputRef.current?.focus();
-          setFocusedIdx(-1);
           e.preventDefault();
           break;
 
         case 't':
-          setOverlay({ kind: 'teams', cursor: 0 });
-          setInput('');
-          setMode('insert');
+          openTeamsPicker();
           inputRef.current?.focus();
-          setFocusedIdx(-1);
           e.preventDefault();
           break;
 
         case '-': {
-          if (currentView.type === 'chat') {
-            navigate({ to: '/' });
-          } else if (
-            currentView.type === 'agent-session' &&
-            currentView.projectId
-          ) {
-            setView({
-              type: 'project-chat',
-              projectId: currentView.projectId,
-              projectName: currentView.projectName ?? '',
-            });
-          } else if (
-            currentView.type === 'project-chat' ||
-            currentView.type === 'agent-session'
-          ) {
-            setView({ type: 'chat' });
-          }
-          setFocusedIdx(-1);
+          navigateBack();
           e.preventDefault();
           break;
         }
@@ -499,43 +270,6 @@ function TeamPage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [navigate]);
-
-  // ── Input change ──────────────────────────────────────────────────────────
-  function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const value = e.target.value;
-    setInput(value);
-
-    const currentOverlay = overlayRef.current;
-
-    // When a list picker is open, update resets cursor; no mention detection
-    if (
-      currentOverlay?.kind === 'teams' ||
-      currentOverlay?.kind === 'projects' ||
-      currentOverlay?.kind === 'agents'
-    ) {
-      setOverlay((ov) => (ov ? { ...ov, cursor: 0 } : ov));
-      return;
-    }
-    if (currentOverlay?.kind === 'projects-create') return;
-
-    // Mention detection
-    const cursor = e.target.selectionStart ?? value.length;
-    const before = value.slice(0, cursor);
-    const match = before.match(/@([\w-]*)$/);
-    if (match) {
-      const atStart = cursor - match[0].length;
-      const query = match[1];
-      setOverlay((prev) => ({
-        kind: 'mention',
-        atStart,
-        query,
-        cursor:
-          prev?.kind === 'mention' && prev.query === query ? prev.cursor : 0,
-      }));
-    } else {
-      setOverlay((prev) => (prev?.kind === 'mention' ? null : prev));
-    }
-  }
 
   // ── Input keydown ─────────────────────────────────────────────────────────
   function handleInputKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -672,10 +406,7 @@ function TeamPage() {
     if (overlay?.kind === 'projects-create') {
       if (e.key === 'Enter' && !e.shiftKey) {
         if (input.trim()) {
-          const name = input.trim();
-          createProjectFn({ data: { teamId, name } }).then((p) => {
-            setProjects((prev) => [...prev, p]);
-          });
+          handleCreateProject(input.trim());
           closePicker();
         }
         e.preventDefault();
@@ -726,9 +457,12 @@ function TeamPage() {
     }
   }
 
-  const workingAgents = agents.filter((a) => a.status === 'working');
-  const isSending = sending || projectSending;
   const inputDisabled = isSending || view.type === 'agent-session';
+
+  const showInlinePicker =
+    overlay !== null &&
+    overlay.kind !== 'projects-create' &&
+    (overlay.kind !== 'mention' || mentionFilteredAgents.length > 0);
 
   const inputPlaceholder =
     overlay?.kind === 'projects-create'
@@ -816,10 +550,7 @@ function TeamPage() {
               mentionItems={mentionFilteredAgents}
               onSelectTeam={(team) => {
                 closePicker();
-                navigate({
-                  to: '/teams/$teamId',
-                  params: { teamId: team.name },
-                });
+                navigateToTeam(team.name);
               }}
               onSelectProject={(p) => {
                 setView({
@@ -891,11 +622,8 @@ function TeamPage() {
         <button
           type="button"
           onClick={() => {
-            setOverlay({ kind: 'teams', cursor: 0 });
-            setInput('');
-            setMode('insert');
+            openTeamsPicker();
             inputRef.current?.focus();
-            setFocusedIdx(-1);
           }}
           className="text-muted-foreground/50 hover:text-primary hover:underline"
         >
@@ -905,11 +633,8 @@ function TeamPage() {
         <button
           type="button"
           onClick={() => {
-            setOverlay({ kind: 'projects', cursor: 0 });
-            setInput('');
-            setMode('insert');
+            openProjectsPicker();
             inputRef.current?.focus();
-            setFocusedIdx(-1);
           }}
           className="text-primary hover:underline ml-3"
         >
@@ -919,11 +644,8 @@ function TeamPage() {
         <button
           type="button"
           onClick={() => {
-            setOverlay({ kind: 'agents', cursor: 0 });
-            setInput('');
-            setMode('insert');
+            openAgentsPicker();
             inputRef.current?.focus();
-            setFocusedIdx(-1);
           }}
           className="text-primary hover:underline ml-3"
         >
