@@ -5,7 +5,7 @@ import {
   flattenSessionBlocks,
   msgToNavBlocks,
   navBlockText,
-} from './nav-blocks';
+} from './-nav-blocks';
 
 // ── flattenSessionBlocks ───────────────────────────────────────────────────
 

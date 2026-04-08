@@ -1,7 +1,7 @@
 import type React from 'react';
 import Markdown from 'react-markdown';
 import { cn } from '~/lib/utils';
-import type { NavBlock } from './nav-blocks';
+import type { NavBlock } from './-nav-blocks';
 
 function FlatHeading({ children }: { children?: React.ReactNode }) {
   return <p className="font-bold">{children}</p>;

@@ -56,8 +56,8 @@ mock.module('~/server/teams', () => ({
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { act, cleanup, renderHook } from '@testing-library/react';
-import { useTeamPage } from './use-team-page';
-import type { TeamPageLoaderData } from './use-team-page';
+import { useTeamPage } from './-use-team-page';
+import type { TeamPageLoaderData } from './-use-team-page';
 
 afterEach(() => {
   // Unmount any renderHook instances so their effects don't fire between tests

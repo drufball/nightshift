@@ -1,7 +1,7 @@
 import type { Project } from '~/db/projects';
 import { cn } from '~/lib/utils';
 import type { TeamMeta } from '~/server/teams';
-import type { AgentInfo, OverlayState } from './use-team-page';
+import type { AgentInfo, OverlayState } from './-use-team-page';
 
 export function InlinePicker({
   overlay,

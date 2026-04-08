@@ -1,7 +1,7 @@
 import type React from 'react';
 import Markdown from 'react-markdown';
 import { cn } from '~/lib/utils';
-import type { ContentBlock, NavBlock } from './nav-blocks';
+import type { ContentBlock, NavBlock } from './-nav-blocks';
 
 const markdownComponents = {
   h1: FlatHeading,
