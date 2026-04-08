@@ -1,5 +1,11 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { Message } from '~/db/messages';
+import {
+  getProjectMessages as getProjectMessagesDb,
+  getTeamMessages,
+  insertMessage,
+} from '~/db/messages';
+import { getSession, setSessionSdkId, upsertSession } from '~/db/sessions';
 import { getDb } from './db';
 import type { TeamMeta } from './teams';
 import { orderedMembers, readTeams, resolveCwd } from './teams';
@@ -154,17 +160,11 @@ export async function runConversationLoop({
   runAgentFn?: RunAgentFn;
 }): Promise<void> {
   const { join } = await import('node:path');
-  const { insertMessage, getTeamMessages, getProjectMessages } = await import(
-    '~/db/messages'
-  );
-  const { getSession, setSessionSdkId, upsertSession } = await import(
-    '~/db/sessions'
-  );
 
   /** Fetch the most recent messages in the right scope (team or project). */
   const getRecentMessages = () =>
     projectId
-      ? getProjectMessages(db, projectId).slice(-20)
+      ? getProjectMessagesDb(db, projectId).slice(-20)
       : getTeamMessages(db, teamId).slice(-20);
 
   // Build the default runAgent wrapper that handles DB status persistence.
@@ -347,6 +347,16 @@ export const getLatestMessages = createServerFn({ method: 'GET' })
     return getTeamMessages(db, data.teamId);
   });
 
+/** Resolves lead name, agent name list, and member metadata for a team. */
+async function resolveTeamContext(cwd: string, team: TeamMeta | undefined) {
+  const leadName = team?.lead ?? 'project-lead';
+  const allAgentNames = team ? orderedMembers(team) : [leadName];
+  const teamMemberMeta = team
+    ? await readTeamMemberMeta(cwd, team)
+    : [{ name: leadName, description: '', isLead: true }];
+  return { leadName, allAgentNames, teamMemberMeta };
+}
+
 export const sendTeamMessage = createServerFn({ method: 'POST' })
   .inputValidator((data: { teamId: string; content: string }) => data)
   .handler(async ({ data }) => {
@@ -360,8 +370,8 @@ export const sendTeamMessage = createServerFn({ method: 'POST' })
     resetStuckSessions(db, data.teamId);
 
     const team = teams.find((t) => t.name === data.teamId);
-    const leadName = team?.lead ?? 'project-lead';
-    const allAgentNames = team ? orderedMembers(team) : [leadName];
+    const { leadName, allAgentNames, teamMemberMeta } =
+      await resolveTeamContext(cwd, team);
 
     // Insert the user message, recording any @mentions so the loop sees them
     const userMentions = parseMentions(data.content, allAgentNames);
@@ -373,10 +383,6 @@ export const sendTeamMessage = createServerFn({ method: 'POST' })
       undefined,
       userMentions,
     );
-
-    const teamMemberMeta = team
-      ? await readTeamMemberMeta(cwd, team)
-      : [{ name: leadName, description: '', isLead: true }];
 
     await runConversationLoop({
       db,
@@ -422,8 +428,8 @@ export const sendProjectMessage = createServerFn({ method: 'POST' })
     resetStuckSessions(db, data.teamId, data.projectId);
 
     const team = teams.find((t) => t.name === data.teamId);
-    const leadName = team?.lead ?? 'project-lead';
-    const allAgentNames = team ? orderedMembers(team) : [leadName];
+    const { leadName, allAgentNames, teamMemberMeta } =
+      await resolveTeamContext(cwd, team);
 
     const userMentions = parseMentions(data.content, allAgentNames);
     insertMessage(
@@ -438,9 +444,6 @@ export const sendProjectMessage = createServerFn({ method: 'POST' })
     const project = getProjectsByTeam(db, data.teamId).find(
       (p) => p.id === data.projectId,
     );
-    const teamMemberMeta = team
-      ? await readTeamMemberMeta(cwd, team)
-      : [{ name: leadName, description: '', isLead: true }];
 
     await runConversationLoop({
       db,

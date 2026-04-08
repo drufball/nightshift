@@ -2,7 +2,7 @@ import { Database } from 'bun:sqlite';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { CREATE_TABLES } from './schema';
 
 export type { Database };
@@ -20,7 +20,7 @@ export function getDbPath(cwd: string): string {
 
 export function openDb(dbPath: string): Database {
   if (dbPath !== ':memory:') {
-    const dir = dbPath.substring(0, dbPath.lastIndexOf('/'));
+    const dir = dirname(dbPath);
     mkdirSync(dir, { recursive: true });
   }
   const db = new Database(dbPath);

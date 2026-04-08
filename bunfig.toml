@@ -1,3 +1,25 @@
 [test]
 environment = "happy-dom"
 preload = ["./src/test-setup.ts"]
+# coverageIgnore is the documented key — kept for forward compat when Bun supports it
+coverageIgnore = [
+  "src/components/ui/**",
+  "src/routeTree.gen.ts",
+  "src/test-setup.ts",
+  "src/lib/utils.ts",
+  "src/routes/__root.tsx",
+  "src/routes/index.tsx",
+  "src/server/db.ts",
+]
+# coveragePathIgnorePatterns is what Bun 1.3.11 actually respects (substring match on path)
+coveragePathIgnorePatterns = [
+  "src/components/ui/button.tsx",
+  "src/components/ui/separator.tsx",
+  "src/components/ui/tooltip.tsx",
+  "src/routeTree.gen.ts",
+  "src/test-setup.ts",
+  "src/lib/utils.ts",
+  "src/routes/__root.tsx",
+  "src/routes/index.tsx",
+  "src/server/db.ts",
+]

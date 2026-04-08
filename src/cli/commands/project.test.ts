@@ -1,13 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { Command } from 'commander';
 import { openDb } from '~/db/index';
 import { getOpenProjectsByTeam } from '~/db/projects';
 import { createGitRepo, createTmpDir, removeTmpDir } from '../test-helpers';
 import { initNightshift } from './init';
-import { createProject, mergeProject } from './project';
+import { createProject, mergeProject, registerProject } from './project';
 
 describe('createProject', () => {
   let tmpDir: string;
@@ -129,5 +130,104 @@ describe('mergeProject', () => {
     await expect(mergeProject(tmpDir, 'nonexistent')).rejects.toThrow(
       /not found/i,
     );
+  });
+});
+
+describe('registerProject', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await createTmpDir();
+    await createGitRepo(tmpDir);
+    await initNightshift(tmpDir);
+  });
+
+  afterEach(async () => {
+    await removeTmpDir(tmpDir);
+  });
+
+  it('registers "project create" and "project merge" subcommands', () => {
+    const program = new Command();
+    program.exitOverride();
+    registerProject(program);
+    const projectCmd = program.commands.find((c) => c.name() === 'project');
+    expect(projectCmd).toBeDefined();
+    const createCmd = projectCmd?.commands.find((c) => c.name() === 'create');
+    expect(createCmd).toBeDefined();
+    const mergeCmd = projectCmd?.commands.find((c) => c.name() === 'merge');
+    expect(mergeCmd).toBeDefined();
+  });
+
+  it('project create action calls process.exit(1) on invalid name', async () => {
+    const exitSpy = spyOn(process, 'exit').mockImplementation(
+      (_code?: number) => undefined as never,
+    );
+    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const program = new Command();
+    program.exitOverride();
+    registerProject(program);
+    const origCwd = process.cwd;
+    process.cwd = () => tmpDir;
+    try {
+      await program.parseAsync(
+        ['project', 'create', 'Bad Name!', '--team', 'feature-team'],
+        { from: 'user' },
+      );
+    } catch {
+      // commander exitOverride may throw on parse errors
+    }
+    process.cwd = origCwd;
+    // Check before mockRestore — Bun clears mock.calls on restore
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    exitSpy.mockRestore();
+    errSpy.mockRestore();
+  });
+
+  it('project create action logs success and creates worktree', async () => {
+    const logSpy = spyOn(console, 'log').mockImplementation(() => {});
+    const program = new Command();
+    program.exitOverride();
+    registerProject(program);
+    const origCwd = process.cwd;
+    process.cwd = () => tmpDir;
+    try {
+      await program.parseAsync(
+        ['project', 'create', 'my-feature', '--team', 'feature-team'],
+        { from: 'user' },
+      );
+    } catch {
+      // no-op
+    }
+    process.cwd = origCwd;
+    // Check before mockRestore — Bun clears mock.calls on restore
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('my-feature'));
+    logSpy.mockRestore();
+    expect(
+      existsSync(join(tmpDir, '.nightshift', 'worktrees', 'my-feature')),
+    ).toBe(true);
+  });
+
+  it('project merge action calls process.exit(1) for nonexistent project', async () => {
+    const exitSpy = spyOn(process, 'exit').mockImplementation(
+      (_code?: number) => undefined as never,
+    );
+    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const program = new Command();
+    program.exitOverride();
+    registerProject(program);
+    const origCwd = process.cwd;
+    process.cwd = () => tmpDir;
+    try {
+      await program.parseAsync(['project', 'merge', 'nonexistent'], {
+        from: 'user',
+      });
+    } catch {
+      // no-op
+    }
+    process.cwd = origCwd;
+    // Check before mockRestore — Bun clears mock.calls on restore
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    exitSpy.mockRestore();
+    errSpy.mockRestore();
   });
 });

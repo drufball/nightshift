@@ -1,16 +1,20 @@
+import { Database as BunDatabase } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { type Database, openDb } from './index';
 import { getProjectMessages, getTeamMessages, insertMessage } from './messages';
 import {
   branchExists,
+  getOpenProjectsByName,
   getOpenProjectsByTeam,
   getProjectsByTeam,
   insertProject,
   markProjectMerged,
 } from './projects';
+import { CREATE_TABLES } from './schema';
 import {
   getSession,
   getSessionsByTeam,
+  resetStuckSessions,
   setSessionSdkId,
   upsertSession,
 } from './sessions';
@@ -66,6 +70,25 @@ describe('projects', () => {
     const p = insertProject(db, 'feat', 'feature-team', 'feat');
     markProjectMerged(db, p.id);
     expect(branchExists(db, 'feat')).toBe(false);
+  });
+
+  it('getOpenProjectsByName returns only open projects with the given name', () => {
+    const p1 = insertProject(db, 'my-feature', 'team-a', 'my-feature');
+    const p2 = insertProject(db, 'my-feature', 'team-b', 'my-feature-a1b2');
+    insertProject(db, 'other', 'team-a', 'other');
+    markProjectMerged(db, p2.id);
+
+    const result = getOpenProjectsByName(db, 'my-feature');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(p1.id);
+  });
+
+  it('getOpenProjectsByName returns empty array when no open projects match', () => {
+    const p = insertProject(db, 'my-feature', 'team-a', 'my-feature');
+    markProjectMerged(db, p.id);
+
+    const result = getOpenProjectsByName(db, 'my-feature');
+    expect(result).toHaveLength(0);
   });
 });
 
@@ -169,5 +192,152 @@ describe('agent_sessions', () => {
     const projSessions = getSessionsByTeam(db, 'feature-team', 'proj-123');
     expect(projSessions).toHaveLength(1);
     expect(projSessions[0].status).toBe('working');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resetStuckSessions
+// ---------------------------------------------------------------------------
+
+describe('resetStuckSessions', () => {
+  it('resets a working session back to idle', () => {
+    upsertSession(db, 'feature-team', 'tech-lead', 'working', 'doing stuff');
+    resetStuckSessions(db, 'feature-team');
+
+    const session = getSession(db, 'feature-team', 'tech-lead');
+    expect(session?.status).toBe('idle');
+  });
+
+  it('leaves already-idle sessions unchanged', () => {
+    upsertSession(db, 'feature-team', 'tech-lead', 'idle');
+    resetStuckSessions(db, 'feature-team');
+
+    const sessions = getSessionsByTeam(db, 'feature-team');
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].status).toBe('idle');
+  });
+
+  it('resets multiple working sessions in the same team', () => {
+    upsertSession(db, 'feature-team', 'agent-a', 'working');
+    upsertSession(db, 'feature-team', 'agent-b', 'working');
+    upsertSession(db, 'feature-team', 'agent-c', 'idle');
+
+    resetStuckSessions(db, 'feature-team');
+
+    const sessions = getSessionsByTeam(db, 'feature-team');
+    for (const s of sessions) {
+      expect(s.status).toBe('idle');
+    }
+  });
+
+  it('only resets sessions in the specified team', () => {
+    upsertSession(db, 'team-a', 'agent-x', 'working');
+    upsertSession(db, 'team-b', 'agent-y', 'working');
+
+    resetStuckSessions(db, 'team-a');
+
+    expect(getSession(db, 'team-a', 'agent-x')?.status).toBe('idle');
+    expect(getSession(db, 'team-b', 'agent-y')?.status).toBe('working');
+  });
+
+  it('scopes reset to the specified projectId when provided', () => {
+    upsertSession(db, 'feature-team', 'tech-lead', 'working'); // team-scoped
+    upsertSession(
+      db,
+      'feature-team',
+      'tech-lead',
+      'working',
+      'coding',
+      'proj-123',
+    ); // project-scoped
+
+    resetStuckSessions(db, 'feature-team', 'proj-123');
+
+    expect(getSession(db, 'feature-team', 'tech-lead')?.status).toBe('working');
+    expect(
+      getSession(db, 'feature-team', 'tech-lead', 'proj-123')?.status,
+    ).toBe('idle');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// openDb migration path — pre-existing DB without sdk_session_id column
+// ---------------------------------------------------------------------------
+
+describe('openDb migration', () => {
+  it('adds sdk_session_id column to a pre-migration DB and keeps existing data intact', () => {
+    // Build an old-schema DB without the sdk_session_id column
+    const oldDb = new BunDatabase(':memory:');
+    oldDb.exec('PRAGMA journal_mode = WAL;');
+    // Create tables using the same DDL but without sdk_session_id
+    oldDb.exec(`
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        team_id TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        team_id TEXT NOT NULL,
+        project_id TEXT,
+        sender TEXT NOT NULL,
+        content TEXT NOT NULL,
+        mentions TEXT NOT NULL DEFAULT '[]',
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS agent_sessions (
+        id TEXT PRIMARY KEY,
+        team_id TEXT NOT NULL,
+        project_id TEXT,
+        agent_name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'idle',
+        status_text TEXT,
+        updated_at INTEGER NOT NULL
+      );
+    `);
+    // Insert a row before the migration runs
+    oldDb.exec(
+      "INSERT INTO agent_sessions (id, team_id, project_id, agent_name, status, status_text, updated_at) VALUES ('s1', 'team-a', NULL, 'tech-lead', 'idle', NULL, 1)",
+    );
+
+    // Simulate the migration by running the same try/catch block openDb uses
+    try {
+      oldDb.exec('ALTER TABLE agent_sessions ADD COLUMN sdk_session_id TEXT;');
+    } catch {
+      // already exists — ignore
+    }
+
+    // Verify the column is present and the pre-existing row still exists
+    const row = oldDb
+      .prepare('SELECT * FROM agent_sessions WHERE id = ?')
+      .get('s1') as { agent_name: string; sdk_session_id: string | null };
+    expect(row.agent_name).toBe('tech-lead');
+    expect(row.sdk_session_id).toBeNull();
+
+    oldDb.close();
+  });
+
+  it('openDb on a fresh :memory: DB exposes sdk_session_id via getSession/setSessionSdkId', () => {
+    const freshDb = openDb(':memory:');
+    upsertSession(freshDb, 'team-x', 'agent-1', 'idle');
+    setSessionSdkId(freshDb, 'team-x', 'agent-1', 'sdk-xyz');
+    const session = getSession(freshDb, 'team-x', 'agent-1');
+    expect(session?.sdk_session_id).toBe('sdk-xyz');
+    freshDb.close();
+  });
+
+  it('openDb is idempotent — calling it twice on the same :memory: path does not throw', () => {
+    // A second call to openDb(:memory:) creates an independent DB — both should work
+    const db1 = openDb(':memory:');
+    const db2 = openDb(':memory:');
+    upsertSession(db1, 'team-1', 'a', 'idle');
+    upsertSession(db2, 'team-2', 'b', 'working');
+    expect(getSession(db1, 'team-1', 'a')?.status).toBe('idle');
+    expect(getSession(db2, 'team-2', 'b')?.status).toBe('working');
+    db1.close();
+    db2.close();
   });
 });

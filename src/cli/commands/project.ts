@@ -4,7 +4,12 @@ import { join } from 'node:path';
 import type { Command } from 'commander';
 import type { Database } from '~/db/index';
 import { getDbPath, openDb } from '~/db/index';
-import { branchExists, insertProject, markProjectMerged } from '~/db/projects';
+import {
+  branchExists,
+  getOpenProjectsByName,
+  insertProject,
+  markProjectMerged,
+} from '~/db/projects';
 import { assertInitialized, assertNotExists, assertValidName } from '../fs';
 
 function git(args: string[], cwd: string): string {
@@ -66,9 +71,7 @@ export async function mergeProject(
   }
 
   // Mark all open projects with this name as merged
-  const openByName = resolvedDb
-    .prepare("SELECT id FROM projects WHERE name = ? AND status = 'open'")
-    .all(name) as { id: string }[];
+  const openByName = getOpenProjectsByName(resolvedDb, name);
   for (const p of openByName) {
     markProjectMerged(resolvedDb, p.id);
   }

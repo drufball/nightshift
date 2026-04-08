@@ -13,12 +13,14 @@ export async function assertNotExists(
   path: string,
   message: string,
 ): Promise<void> {
+  let exists = false;
   try {
     await access(path);
-    throw new Error(message);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    exists = true;
+  } catch {
+    // ENOENT expected — file does not exist
   }
+  if (exists) throw new Error(message);
 }
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
