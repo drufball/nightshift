@@ -382,15 +382,19 @@ export function useTeamPage(initialData: TeamPageLoaderData) {
   // navigateBack: '-' key logic extracted so it can be called from the
   // global keydown handler that lives in $teamId.tsx
   function navigateBack() {
-    if (view.type === 'chat') {
+    const currentView = viewRef.current;
+    if (currentView.type === 'chat') {
       navigate({ to: '/' });
-    } else if (view.type === 'agent-session' && view.projectId) {
+    } else if (currentView.type === 'agent-session' && currentView.projectId) {
       setView({
         type: 'project-chat',
-        projectId: view.projectId,
-        projectName: view.projectName ?? '',
+        projectId: currentView.projectId,
+        projectName: currentView.projectName ?? '',
       });
-    } else if (view.type === 'project-chat' || view.type === 'agent-session') {
+    } else if (
+      currentView.type === 'project-chat' ||
+      currentView.type === 'agent-session'
+    ) {
       setView({ type: 'chat' });
     }
     setFocusedIdx(-1);
