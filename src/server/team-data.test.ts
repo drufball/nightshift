@@ -24,7 +24,12 @@ mock.module('@anthropic-ai/sdk', () => ({
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { type Database, openDb } from '~/db/index';
-import { getTeamMessages, insertMessage } from '~/db/messages';
+import {
+  getProjectMessages,
+  getTeamMessages,
+  insertMessage,
+} from '~/db/messages';
+import { getSession } from '~/db/sessions';
 import {
   parseMentions,
   runConversationJudge,
@@ -375,5 +380,147 @@ describe('runConversationLoop', () => {
 
     // alice ran once; second judge call returned alice again but respondedAgents blocked her
     expect(runAgentFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('scopes messages to projectId when provided', async () => {
+    const projectId = 'proj-123';
+    const runAgentFn = mock(async () => 'done, @user check this');
+    // Insert a message in the project scope (not team scope)
+    insertMessage(
+      db,
+      'test-team',
+      'user',
+      'hey @alice project work',
+      projectId,
+    );
+
+    await runConversationLoop({
+      db,
+      teamId: 'test-team',
+      team,
+      cwd: '/tmp',
+      teamMemberMeta,
+      projectId,
+      runAgentFn,
+    });
+
+    // alice ran and her message was inserted into the project scope
+    expect(runAgentFn).toHaveBeenCalledTimes(1);
+    const projectMsgs = getProjectMessages(db, projectId);
+    expect(projectMsgs.some((m) => m.sender === 'alice')).toBe(true);
+    // Team-scoped messages table should not have alice's message
+    const teamMsgs = getTeamMessages(db, 'test-team');
+    expect(teamMsgs.some((m) => m.sender === 'alice')).toBe(false);
+  });
+
+  it('breaks immediately when projectId-scoped last message contains @user', async () => {
+    const projectId = 'proj-456';
+    const runAgentFn = mock(async () => '');
+    // Insert a message that already mentions @user — loop should exit without running any agent
+    insertMessage(
+      db,
+      'test-team',
+      'user',
+      '@user what do you think?',
+      projectId,
+    );
+
+    await runConversationLoop({
+      db,
+      teamId: 'test-team',
+      team,
+      cwd: '/tmp',
+      teamMemberMeta,
+      projectId,
+      runAgentFn,
+    });
+
+    expect(runAgentFn).not.toHaveBeenCalled();
+  });
+
+  it('resets session to idle when the agent throws an error', async () => {
+    const { upsertSession } = await import('~/db/sessions');
+    // Pre-create a 'working' session for alice to simulate a stuck state
+    upsertSession(db, 'test-team', 'alice', 'working', 'doing stuff');
+
+    const runAgentFn = mock(async () => {
+      throw new Error('SDK crashed');
+    });
+    insertMessage(db, 'test-team', 'user', 'hey @alice help');
+
+    await runConversationLoop({
+      db,
+      teamId: 'test-team',
+      team,
+      cwd: '/tmp',
+      teamMemberMeta,
+      runAgentFn,
+    });
+
+    // After the error the loop should have called upsertSession with 'idle'
+    const session = getSession(db, 'test-team', 'alice');
+    expect(session?.status).toBe('idle');
+  });
+
+  it('resets project-scoped session to idle when the agent throws', async () => {
+    const { upsertSession } = await import('~/db/sessions');
+    const projectId = 'proj-err';
+    upsertSession(
+      db,
+      'test-team',
+      'alice',
+      'working',
+      'doing stuff',
+      projectId,
+    );
+
+    const runAgentFn = mock(async () => {
+      throw new Error('SDK crashed');
+    });
+    insertMessage(db, 'test-team', 'user', 'hey @alice help', projectId);
+
+    await runConversationLoop({
+      db,
+      teamId: 'test-team',
+      team,
+      cwd: '/tmp',
+      teamMemberMeta,
+      projectId,
+      runAgentFn,
+    });
+
+    const session = getSession(db, 'test-team', 'alice', projectId);
+    expect(session?.status).toBe('idle');
+  });
+
+  it('passes projectBranch to the agent when provided', async () => {
+    const projectId = 'proj-branch';
+    // biome-ignore lint/suspicious/noExplicitAny: test capture
+    let capturedOpts: Record<string, any> | undefined;
+    // biome-ignore lint/suspicious/noExplicitAny: test capture
+    const runAgentFn = mock(async (opts: Record<string, any>) => {
+      capturedOpts = opts;
+      return '@user done';
+    });
+    insertMessage(
+      db,
+      'test-team',
+      'user',
+      'hey @alice work on branch',
+      projectId,
+    );
+
+    await runConversationLoop({
+      db,
+      teamId: 'test-team',
+      team,
+      cwd: '/tmp',
+      teamMemberMeta,
+      projectId,
+      projectBranch: 'feature-xyz',
+      runAgentFn,
+    });
+
+    expect(capturedOpts?.projectBranch).toBe('feature-xyz');
   });
 });
