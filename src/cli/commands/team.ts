@@ -31,7 +31,47 @@ ${membersToml}
 `;
 
   await writeFile(join(teamDir, 'team.toml'), content);
+  await writeFile(join(teamDir, 'MISSION.md'), MISSION_TEMPLATE);
+  await writeFile(join(teamDir, 'MEMORY.md'), MEMORY_TEMPLATE);
+  await writeFile(join(teamDir, 'DECISIONS.md'), DECISIONS_TEMPLATE);
 }
+
+const MISSION_TEMPLATE = `# Mission
+
+<!-- One paragraph: what is this team for and why does it exist? -->
+
+## Ownership
+<!-- What does this team own? Cover the relevant dimensions: product surfaces, code areas, processes, integrations, etc. -->
+
+## Goals
+<!-- What is this team focused on right now? List 1–3 active goals. -->
+
+## Common Tasks
+<!-- Recurring tasks this team runs, so agents know what "normal work" looks like -->
+`;
+
+const MEMORY_TEMPLATE = `# Memory
+
+A running log of patterns, preferences, and lessons this team has learned.
+Append new entries at the top. Include a date.
+
+---
+
+<!-- Entry format:
+## YYYY-MM-DD — Title
+What happened and what we learned.
+-->
+`;
+
+const DECISIONS_TEMPLATE = `# Decisions
+
+Key decisions made by this team. Record decisions here so agents and humans
+don't re-litigate them.
+
+| Date | Decision | Rationale | Status |
+|------|----------|-----------|--------|
+| | | | |
+`;
 
 export function registerTeam(program: Command): void {
   const team = program.command('team').description('Manage teams');

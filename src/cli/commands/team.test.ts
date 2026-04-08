@@ -107,6 +107,57 @@ describe('createTeam', () => {
       createTeam(tmpDir, 'my-team', 'project-lead', ['Bad Member!']),
     ).rejects.toThrow(/invalid.*name/i);
   });
+
+  it('creates MISSION.md in the team directory', async () => {
+    await createTeam(tmpDir, 'my-team', 'project-lead', []);
+    expect(
+      existsSync(join(tmpDir, '.nightshift', 'teams', 'my-team', 'MISSION.md')),
+    ).toBe(true);
+  });
+
+  it('MISSION.md contains ownership and goals sections', async () => {
+    await createTeam(tmpDir, 'my-team', 'project-lead', []);
+    const contents = readFileSync(
+      join(tmpDir, '.nightshift', 'teams', 'my-team', 'MISSION.md'),
+      'utf-8',
+    );
+    expect(contents).toContain('## Ownership');
+    expect(contents).toContain('## Goals');
+  });
+
+  it('creates MEMORY.md in the team directory', async () => {
+    await createTeam(tmpDir, 'my-team', 'project-lead', []);
+    expect(
+      existsSync(join(tmpDir, '.nightshift', 'teams', 'my-team', 'MEMORY.md')),
+    ).toBe(true);
+  });
+
+  it('MEMORY.md contains instructions for appending entries', async () => {
+    await createTeam(tmpDir, 'my-team', 'project-lead', []);
+    const contents = readFileSync(
+      join(tmpDir, '.nightshift', 'teams', 'my-team', 'MEMORY.md'),
+      'utf-8',
+    );
+    expect(contents).toContain('Append');
+  });
+
+  it('creates DECISIONS.md in the team directory', async () => {
+    await createTeam(tmpDir, 'my-team', 'project-lead', []);
+    expect(
+      existsSync(
+        join(tmpDir, '.nightshift', 'teams', 'my-team', 'DECISIONS.md'),
+      ),
+    ).toBe(true);
+  });
+
+  it('DECISIONS.md contains a table header', async () => {
+    await createTeam(tmpDir, 'my-team', 'project-lead', []);
+    const contents = readFileSync(
+      join(tmpDir, '.nightshift', 'teams', 'my-team', 'DECISIONS.md'),
+      'utf-8',
+    );
+    expect(contents).toContain('| Date |');
+  });
 });
 
 describe('registerTeam', () => {
