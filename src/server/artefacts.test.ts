@@ -223,4 +223,22 @@ describe('getProjectDiff', () => {
     // Only kept.md should count, not ignored.txt
     expect(result.stats.filesChanged).toBe(1);
   });
+
+  it('includes uncommitted (unstaged) changes from project worktree', async () => {
+    // Create the branch without checking it out, then add a worktree for it
+    const worktreeDir = join(tmpDir, '.nightshift', 'worktrees', 'my-project');
+    execSync('git branch feature-wt', { cwd: tmpDir, stdio: 'pipe' });
+    execSync(`git worktree add "${worktreeDir}" feature-wt`, {
+      cwd: tmpDir,
+      stdio: 'pipe',
+    });
+
+    // Modify the existing tracked README.md without staging or committing
+    await writeFile(join(worktreeDir, 'README.md'), '# Modified\nNew content');
+
+    const result = await getProjectDiff(tmpDir, 'feature-wt', 'my-project');
+    expect(result.diff).toContain('README.md');
+    expect(result.diff).toContain('+# Modified');
+    expect(result.stats.filesChanged).toBeGreaterThan(0);
+  });
 });

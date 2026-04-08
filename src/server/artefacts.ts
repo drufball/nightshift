@@ -102,10 +102,14 @@ export async function readTeamFile(
 export async function getProjectDiff(
   cwd: string,
   branch: string,
+  projectName?: string,
 ): Promise<{ diff: string; stats: DiffStats }> {
   const { execFileSync } = await import('node:child_process');
+  const { existsSync } = await import('node:fs');
+  const { join } = await import('node:path');
   const ignorePatterns = await readDiffIgnore(cwd);
 
+  // Committed changes on the branch vs HEAD
   let rawDiff: string;
   try {
     rawDiff = execFileSync('git', ['diff', `HEAD...${branch}`], {
@@ -125,6 +129,35 @@ export async function getProjectDiff(
     ).toString();
   } catch {
     rawNumstat = '';
+  }
+
+  // Uncommitted changes (staged + unstaged) in the project worktree
+  const worktreePath = projectName
+    ? join(cwd, '.nightshift', 'worktrees', projectName)
+    : null;
+  if (worktreePath && existsSync(worktreePath)) {
+    let uncommittedDiff: string;
+    try {
+      uncommittedDiff = execFileSync('git', ['diff', 'HEAD'], {
+        cwd: worktreePath,
+        stdio: 'pipe',
+      }).toString();
+    } catch {
+      uncommittedDiff = '';
+    }
+
+    let uncommittedNumstat: string;
+    try {
+      uncommittedNumstat = execFileSync('git', ['diff', '--numstat', 'HEAD'], {
+        cwd: worktreePath,
+        stdio: 'pipe',
+      }).toString();
+    } catch {
+      uncommittedNumstat = '';
+    }
+
+    if (uncommittedDiff) rawDiff += uncommittedDiff;
+    if (uncommittedNumstat) rawNumstat += `\n${uncommittedNumstat}`;
   }
 
   const diff = filterDiff(rawDiff, ignorePatterns);
@@ -244,8 +277,8 @@ export const getTeamFileContent = createServerFn({ method: 'GET' })
   });
 
 export const getProjectDiffFn = createServerFn({ method: 'GET' })
-  .inputValidator((data: { branch: string }) => data)
+  .inputValidator((data: { branch: string; projectName?: string }) => data)
   .handler(async ({ data }) => {
     const cwd = await resolveCwd();
-    return getProjectDiff(cwd, data.branch);
+    return getProjectDiff(cwd, data.branch, data.projectName);
   });

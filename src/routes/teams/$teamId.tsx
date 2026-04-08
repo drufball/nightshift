@@ -163,7 +163,9 @@ function TeamPage() {
     }
     const project = projects.find((p) => p.id === view.projectId);
     if (!project) return;
-    getProjectDiffFn({ data: { branch: project.branch } }).then((result) => {
+    getProjectDiffFn({
+      data: { branch: project.branch, projectName: project.name },
+    }).then((result) => {
       setDiffStats(result.stats);
     });
   }, [view, projects, getProjectDiffFn]);
@@ -245,7 +247,7 @@ function TeamPage() {
     );
     if (!project) return;
     const result = await getProjectDiffFnRef.current({
-      data: { branch: project.branch },
+      data: { branch: project.branch, projectName: project.name },
     });
     setArtefactView({ kind: 'diff', diffText: result.diff, stats: result.stats });
   }
@@ -272,24 +274,27 @@ function TeamPage() {
 
       // Artefact view keyboard handling (takes priority)
       if (currentArtefact !== null) {
-        if (
-          e.key === 'Escape' ||
-          (e.key === '-' && currentArtefact.kind === 'diff')
-        ) {
+        if (e.key === 'Escape') {
           setArtefactView(null);
           e.preventDefault();
           return;
         }
-        if (currentArtefact.kind === 'files') {
-          if (e.key === '-') {
+        if (e.key === '-') {
+          if (currentArtefact.kind === 'files') {
             if (currentArtefact.path.length > 0) {
               browseTo(currentArtefact.path.slice(0, -1));
             } else {
               setArtefactView(null);
             }
-            e.preventDefault();
-            return;
+          } else if (currentArtefact.kind === 'file-content') {
+            browseTo(currentArtefact.relPath.slice(0, -1));
+          } else {
+            setArtefactView(null);
           }
+          e.preventDefault();
+          return;
+        }
+        if (currentArtefact.kind === 'files') {
           if (e.key === 'j') {
             setArtefactView((av) =>
               av?.kind === 'files'
@@ -326,13 +331,6 @@ function TeamPage() {
                   });
               }
             }
-            e.preventDefault();
-            return;
-          }
-        }
-        if (currentArtefact.kind === 'file-content') {
-          if (e.key === '-') {
-            browseTo(currentArtefact.relPath.slice(0, -1));
             e.preventDefault();
             return;
           }
@@ -388,7 +386,9 @@ function TeamPage() {
             );
             if (proj) {
               getProjectDiffFnRef
-                .current({ data: { branch: proj.branch } })
+                .current({
+                  data: { branch: proj.branch, projectName: proj.name },
+                })
                 .then((result) => {
                   setArtefactView({
                     kind: 'diff',
