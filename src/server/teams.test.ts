@@ -2,7 +2,71 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createTmpDir, removeTmpDir } from '~/cli/test-helpers';
-import { readHomeTeam, readTeams, resolveStartTeam } from './teams';
+import {
+  orderedMembers,
+  readHomeTeam,
+  readTeams,
+  resolveCwd,
+  resolveStartTeam,
+} from './teams';
+
+describe('orderedMembers', () => {
+  it('puts lead first followed by remaining members', () => {
+    const team = { name: 'my-team', lead: 'alice', members: ['bob', 'carol'] };
+    expect(orderedMembers(team)).toEqual(['alice', 'bob', 'carol']);
+  });
+
+  it('deduplicates lead if they also appear in members list', () => {
+    const team = { name: 'my-team', lead: 'alice', members: ['alice', 'bob'] };
+    expect(orderedMembers(team)).toEqual(['alice', 'bob']);
+  });
+
+  it('returns only the lead when members list is empty', () => {
+    const team = { name: 'my-team', lead: 'alice', members: [] };
+    expect(orderedMembers(team)).toEqual(['alice']);
+  });
+
+  it('preserves member order after the lead', () => {
+    const team = {
+      name: 'my-team',
+      lead: 'lead',
+      members: ['z-member', 'a-member'],
+    };
+    expect(orderedMembers(team)).toEqual(['lead', 'z-member', 'a-member']);
+  });
+});
+
+describe('resolveCwd', () => {
+  it('returns NIGHTSHIFT_PROJECT_DIR when set', async () => {
+    const original = process.env.NIGHTSHIFT_PROJECT_DIR;
+    process.env.NIGHTSHIFT_PROJECT_DIR = '/some/project/dir';
+    try {
+      const result = await resolveCwd();
+      expect(result).toBe('/some/project/dir');
+    } finally {
+      if (original === undefined) {
+        process.env.NIGHTSHIFT_PROJECT_DIR = undefined;
+      } else {
+        process.env.NIGHTSHIFT_PROJECT_DIR = original;
+      }
+    }
+  });
+
+  it('falls back to git rev-parse when env var is not set', async () => {
+    const original = process.env.NIGHTSHIFT_PROJECT_DIR;
+    process.env.NIGHTSHIFT_PROJECT_DIR = undefined;
+    try {
+      const result = await resolveCwd();
+      // Should return a non-empty string (the git root of this repo)
+      expect(typeof result).toBe('string');
+      expect(result.length).toBeGreaterThan(0);
+    } finally {
+      if (original !== undefined) {
+        process.env.NIGHTSHIFT_PROJECT_DIR = original;
+      }
+    }
+  });
+});
 
 describe('readTeams', () => {
   let tmpDir: string;

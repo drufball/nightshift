@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { Command } from 'commander';
 import { createTmpDir, removeTmpDir } from '../test-helpers';
-import { initNightshift } from './init';
+import { initNightshift, registerInit } from './init';
 
 describe('initNightshift', () => {
   let tmpDir: string;
@@ -106,5 +107,69 @@ describe('initNightshift', () => {
     await expect(initNightshift(tmpDir)).rejects.toThrow(
       /already initialized/i,
     );
+  });
+});
+
+describe('registerInit', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await createTmpDir();
+  });
+
+  afterEach(async () => {
+    await removeTmpDir(tmpDir);
+  });
+
+  it('registers an "init" command on the program', () => {
+    const program = new Command();
+    program.exitOverride();
+    registerInit(program);
+    const initCmd = program.commands.find((c) => c.name() === 'init');
+    expect(initCmd).toBeDefined();
+  });
+
+  it('init action initializes the directory and logs success', async () => {
+    const logSpy = spyOn(console, 'log').mockImplementation(() => {});
+    const program = new Command();
+    program.exitOverride();
+    registerInit(program);
+    const origCwd = process.cwd;
+    process.cwd = () => tmpDir;
+    try {
+      await program.parseAsync(['init'], { from: 'user' });
+    } catch {
+      // no-op
+    }
+    process.cwd = origCwd;
+    // Check before mockRestore — Bun clears mock.calls on restore
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Initialized nightshift'),
+    );
+    logSpy.mockRestore();
+    expect(existsSync(join(tmpDir, '.nightshift'))).toBe(true);
+  });
+
+  it('init action calls process.exit(1) when already initialized', async () => {
+    await initNightshift(tmpDir);
+    const exitSpy = spyOn(process, 'exit').mockImplementation(
+      (_code?: number) => undefined as never,
+    );
+    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const program = new Command();
+    program.exitOverride();
+    registerInit(program);
+    const origCwd = process.cwd;
+    process.cwd = () => tmpDir;
+    try {
+      await program.parseAsync(['init'], { from: 'user' });
+    } catch {
+      // no-op
+    }
+    process.cwd = origCwd;
+    // Check before mockRestore — Bun clears mock.calls on restore
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    exitSpy.mockRestore();
+    errSpy.mockRestore();
   });
 });
