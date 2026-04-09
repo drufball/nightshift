@@ -1,34 +1,14 @@
 import { Outlet, createFileRoute, useMatches } from '@tanstack/react-router';
-import { useServerFn } from '@tanstack/react-start';
 import type React from 'react';
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef } from 'react';
 import { Separator } from '~/components/ui/separator';
 import type { Project } from '~/db/projects';
 import type { AgentSession } from '~/db/sessions';
 import { cn } from '~/lib/utils';
-import {
-  type DiffStats,
-  type FileEntry,
-  getProjectDiffFn as getProjectDiffServerFn,
-  getTeamFileContent,
-  getTeamFiles,
-} from '~/server/artefacts';
 import { getTeamView } from '~/server/team-data';
 import type { TeamMeta } from '~/server/teams';
 import { listTeams } from '~/server/teams';
-import { AgentSessionView } from './$teamId/-agent-session-view';
 import { Breadcrumb } from './$teamId/-breadcrumb';
-import { DiffView } from './$teamId/-diff-view';
-import { FileContentView } from './$teamId/-file-content-view';
-import { FilesView } from './$teamId/-files-view';
 import { InlinePicker } from './$teamId/-inline-picker';
 import { navBlockText } from './$teamId/-nav-blocks';
 import type { NavBlock } from './$teamId/-nav-blocks';
@@ -72,6 +52,8 @@ export type TeamPageContextType = {
   focusedIdx: number;
   setFocusedIdx: React.Dispatch<React.SetStateAction<number>>;
   bottomRef: React.RefObject<HTMLDivElement | null>;
+  projects: Project[];
+  teamId: string;
 };
 
 export const TeamPageContext = createContext<TeamPageContextType | null>(null);
@@ -81,13 +63,6 @@ export function useTeamPageContext() {
   if (!ctx) throw new Error('useTeamPageContext must be used within TeamPage');
   return ctx;
 }
-
-// ── Types ──────────────────────────────────────────────────────────────────
-
-type ArtefactView =
-  | { kind: 'files'; path: string[]; entries: FileEntry[]; cursor: number }
-  | { kind: 'file-content'; relPath: string[]; content: string }
-  | { kind: 'diff'; diffText: string };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -112,6 +87,9 @@ const PROJECT_ROUTE_ID = '/teams/$teamId/projects/$projectName';
 const AGENT_IN_PROJECT_ROUTE_ID =
   '/teams/$teamId/projects/$projectName/agents/$agentName';
 const AGENT_ROUTE_ID = '/teams/$teamId/agents/$agentName';
+const TEAM_FILES_ROUTE_ID = '/teams/$teamId/files';
+const PROJECT_FILES_ROUTE_ID = '/teams/$teamId/projects/$projectName/files';
+const PROJECT_DIFF_ROUTE_ID = '/teams/$teamId/projects/$projectName/diff';
 
 // ── Main component ─────────────────────────────────────────────────────────
 
@@ -139,9 +117,15 @@ function TeamPage() {
       ?.agentName ??
     (agentOnlyMatch?.params as { agentName?: string } | undefined)?.agentName;
 
+  const isFilesView = matches.some(
+    (m) =>
+      m.routeId === TEAM_FILES_ROUTE_ID || m.routeId === PROJECT_FILES_ROUTE_ID,
+  );
+  const isDiffView = matches.some((m) => m.routeId === PROJECT_DIFF_ROUTE_ID);
+
   const routeCtx = useMemo(
-    () => ({ currentProjectName, currentAgentName }),
-    [currentProjectName, currentAgentName],
+    () => ({ currentProjectName, currentAgentName, isFilesView, isDiffView }),
+    [currentProjectName, currentAgentName, isFilesView, isDiffView],
   );
 
   const {
@@ -183,55 +167,10 @@ function TeamPage() {
     currentProjectId,
   } = useTeamPage({ ...initialData, teamId }, routeCtx);
 
-  // ── Artefact state ─────────────────────────────────────────────────────────
-  const [artefactView, setArtefactView] = useState<ArtefactView | null>(null);
-  const [diffStats, setDiffStats] = useState<DiffStats | null>(null);
-
   // ── DOM-only refs (tightly coupled to JSX) ─────────────────────────────────
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasInitialScrolled = useRef(false);
-
-  // projectsRef lets the keyboard handler read latest projects without being in deps
-  const projectsRef = useRef(projects);
-  useEffect(() => {
-    projectsRef.current = projects;
-  }, [projects]);
-  // useLayoutEffect so the ref is current before the browser paints — avoids
-  // a race where the user presses a key before the effect runs post-paint.
-  const artefactViewRef = useRef(artefactView);
-  useLayoutEffect(() => {
-    artefactViewRef.current = artefactView;
-  }, [artefactView]);
-
-  // ── Artefact server functions ──────────────────────────────────────────────
-  const getTeamFilesFn = useServerFn(getTeamFiles);
-  const getTeamFileContentFn = useServerFn(getTeamFileContent);
-  const getProjectDiffFn = useServerFn(getProjectDiffServerFn);
-  // Stable refs so keyboard handler doesn't need these in its deps array
-  const getTeamFilesFnRef = useRef(getTeamFilesFn);
-  const getTeamFileContentFnRef = useRef(getTeamFileContentFn);
-  const getProjectDiffFnRef = useRef(getProjectDiffFn);
-  useEffect(() => {
-    getTeamFilesFnRef.current = getTeamFilesFn;
-    getTeamFileContentFnRef.current = getTeamFileContentFn;
-    getProjectDiffFnRef.current = getProjectDiffFn;
-  });
-
-  // Load diff stats whenever we enter a project-chat view
-  useEffect(() => {
-    if (!currentProjectId) {
-      setDiffStats(null);
-      return;
-    }
-    const project = projects.find((p) => p.id === currentProjectId);
-    if (!project) return;
-    getProjectDiffFn({
-      data: { branch: project.branch },
-    }).then((result) => {
-      setDiffStats(result.stats);
-    });
-  }, [currentProjectId, projects, getProjectDiffFn]);
 
   // Scroll to bottom when messages change
   // biome-ignore lint/correctness/useExhaustiveDependencies: messages/projectMessages trigger scroll
@@ -292,29 +231,6 @@ function TeamPage() {
     inputRef.current?.blur();
   }
 
-  // ── Artefact actions ───────────────────────────────────────────────────────
-
-  async function openFilesBrowser(path: string[] = []) {
-    const entries = await getTeamFilesFnRef.current({
-      data: { teamId, subPath: path },
-    });
-    setArtefactView({ kind: 'files', path, entries, cursor: 0 });
-  }
-
-  async function openDiffViewer() {
-    const ctx = routeCtxRef.current;
-    if (!ctx.currentProjectName || ctx.currentAgentName) return;
-    const project = projectsRef.current.find(
-      (p) => p.name === ctx.currentProjectName,
-    );
-    if (!project) return;
-    const result = await getProjectDiffFnRef.current({
-      data: { branch: project.branch },
-    });
-    setDiffStats(result.stats);
-    setArtefactView({ kind: 'diff', diffText: result.diff });
-  }
-
   // ── Global keyboard handler ───────────────────────────────────────────────
   // biome-ignore lint/correctness/useExhaustiveDependencies: handler intentionally reads latest state via refs; only navigate/teamId trigger re-registration
   useEffect(() => {
@@ -324,77 +240,6 @@ function TeamPage() {
       const currentOverlay = overlayRef.current;
       const currentFocused = focusedIdxRef.current;
       const blocks = navBlocksRef.current;
-      const currentArtefact = artefactViewRef.current;
-
-      // Artefact view keyboard handling (takes priority)
-      if (currentArtefact !== null) {
-        if (e.key === 'Escape') {
-          setArtefactView(null);
-          e.preventDefault();
-          return;
-        }
-        if (e.key === '-') {
-          if (currentArtefact.kind === 'files') {
-            if (currentArtefact.path.length > 0) {
-              openFilesBrowser(currentArtefact.path.slice(0, -1));
-            } else {
-              setArtefactView(null);
-            }
-          } else if (currentArtefact.kind === 'file-content') {
-            openFilesBrowser(currentArtefact.relPath.slice(0, -1));
-          } else {
-            setArtefactView(null);
-          }
-          e.preventDefault();
-          return;
-        }
-        if (currentArtefact.kind === 'files') {
-          if (e.key === 'j') {
-            setArtefactView((av) =>
-              av?.kind === 'files'
-                ? {
-                    ...av,
-                    cursor: Math.min(av.cursor + 1, av.entries.length - 1),
-                  }
-                : av,
-            );
-            e.preventDefault();
-            return;
-          }
-          if (e.key === 'k') {
-            setArtefactView((av) =>
-              av?.kind === 'files'
-                ? { ...av, cursor: Math.max(av.cursor - 1, 0) }
-                : av,
-            );
-            e.preventDefault();
-            return;
-          }
-          if (e.key === 'Enter') {
-            const entry = currentArtefact.entries[currentArtefact.cursor];
-            if (entry) {
-              const newPath = [...currentArtefact.path, entry.name];
-              if (entry.type === 'dir') {
-                openFilesBrowser(newPath);
-              } else {
-                getTeamFileContentFnRef
-                  .current({ data: { teamId, relPath: newPath } })
-                  .then((content) => {
-                    setArtefactView({
-                      kind: 'file-content',
-                      relPath: newPath,
-                      content,
-                    });
-                  });
-              }
-            }
-            e.preventDefault();
-            return;
-          }
-        }
-        // Unhandled key in artefact view — fall through to normal mode so
-        // pickers (p, a, t, f) and other shortcuts still work.
-      }
 
       if (currentMode === 'insert') {
         if (e.key === 'Escape') {
@@ -433,13 +278,16 @@ function TeamPage() {
           break;
 
         case 'f':
-          openFilesBrowser([]);
+          navigate({ to: '/teams/$teamId/files', params: { teamId } });
           e.preventDefault();
           break;
 
         case 'd':
           if (currentCtx.currentProjectName && !currentCtx.currentAgentName) {
-            openDiffViewer();
+            navigate({
+              to: '/teams/$teamId/projects/$projectName/diff',
+              params: { teamId, projectName: currentCtx.currentProjectName },
+            });
           }
           e.preventDefault();
           break;
@@ -463,23 +311,32 @@ function TeamPage() {
           break;
 
         case '-': {
-          navigateBack();
+          // Files/diff routes handle their own '-' key
+          if (!currentCtx.isFilesView && !currentCtx.isDiffView) {
+            navigateBack();
+          }
           e.preventDefault();
           break;
         }
 
         case 'j': {
-          setFocusedIdx((f) =>
-            f < 0 ? 0 : Math.min(f + 1, blocks.length - 1),
-          );
+          // Files/diff routes handle their own 'j' key
+          if (!currentCtx.isFilesView && !currentCtx.isDiffView) {
+            setFocusedIdx((f) =>
+              f < 0 ? 0 : Math.min(f + 1, blocks.length - 1),
+            );
+          }
           e.preventDefault();
           break;
         }
 
         case 'k': {
-          setFocusedIdx((f) =>
-            f < 0 ? blocks.length - 1 : Math.max(f - 1, 0),
-          );
+          // Files/diff routes handle their own 'k' key
+          if (!currentCtx.isFilesView && !currentCtx.isDiffView) {
+            setFocusedIdx((f) =>
+              f < 0 ? blocks.length - 1 : Math.max(f - 1, 0),
+            );
+          }
           e.preventDefault();
           break;
         }
@@ -716,10 +573,17 @@ function TeamPage() {
         ? 'filter...'
         : undefined;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: setFocusedIdx and bottomRef are stable refs
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setFocusedIdx and bottomRef are stable refs; teamId and projects are stable within a team session
   const contextValue: TeamPageContextType = useMemo(
-    () => ({ navBlocks, focusedIdx, setFocusedIdx, bottomRef }),
-    [navBlocks, focusedIdx],
+    () => ({
+      navBlocks,
+      focusedIdx,
+      setFocusedIdx,
+      bottomRef,
+      projects,
+      teamId,
+    }),
+    [navBlocks, focusedIdx, projects, teamId],
   );
 
   return (
@@ -727,50 +591,7 @@ function TeamPage() {
       <div className="flex flex-col h-screen bg-background overflow-hidden font-mono">
         {/* ── Content area ────────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
-          {artefactView !== null ? (
-            artefactView.kind === 'files' ? (
-              <FilesView
-                teamId={teamId}
-                path={artefactView.path}
-                entries={artefactView.entries}
-                cursor={artefactView.cursor}
-                onSelectEntry={(entry, newPath) => {
-                  if (entry.type === 'dir') {
-                    openFilesBrowser(newPath);
-                  } else {
-                    getTeamFileContentFn({
-                      data: { teamId, relPath: newPath },
-                    }).then((content) => {
-                      setArtefactView({
-                        kind: 'file-content',
-                        relPath: newPath,
-                        content,
-                      });
-                    });
-                  }
-                }}
-                onNavigateCursor={(cursor) =>
-                  setArtefactView((av) =>
-                    av?.kind === 'files' ? { ...av, cursor } : av,
-                  )
-                }
-              />
-            ) : artefactView.kind === 'file-content' ? (
-              <FileContentView
-                relPath={artefactView.relPath}
-                content={artefactView.content}
-              />
-            ) : (
-              <DiffView
-                diffText={artefactView.diffText}
-                stats={
-                  diffStats ?? { filesChanged: 0, insertions: 0, deletions: 0 }
-                }
-              />
-            )
-          ) : (
-            <Outlet />
-          )}
+          <Outlet />
         </div>
 
         {/* ── Working agent indicator ─────────────────────────────────────── */}
@@ -928,21 +749,27 @@ function TeamPage() {
           <span className="text-muted-foreground ml-0.5">(a)</span>
           <button
             type="button"
-            onClick={() => openFilesBrowser([])}
+            onClick={() =>
+              navigate({ to: '/teams/$teamId/files', params: { teamId } })
+            }
             className="text-muted-foreground/50 hover:text-primary hover:underline ml-3"
           >
             files
           </button>
           <span className="text-muted-foreground/30 ml-0.5">(f)</span>
-          {currentProjectId && !currentAgentName && diffStats !== null && (
+          {currentProjectId && !currentAgentName && currentProjectName && (
             <>
               <button
                 type="button"
-                onClick={() => openDiffViewer()}
+                onClick={() =>
+                  navigate({
+                    to: '/teams/$teamId/projects/$projectName/diff',
+                    params: { teamId, projectName: currentProjectName },
+                  })
+                }
                 className="text-muted-foreground/50 hover:text-primary hover:underline ml-3"
               >
-                {diffStats.filesChanged} files changed +{diffStats.insertions} -
-                {diffStats.deletions}
+                diff
               </button>
               <span className="text-muted-foreground/30 ml-0.5">(d)</span>
             </>

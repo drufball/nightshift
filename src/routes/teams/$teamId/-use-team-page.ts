@@ -77,6 +77,8 @@ export type OverlayState =
 export type TeamRouteContext = {
   currentProjectName?: string;
   currentAgentName?: string;
+  isFilesView?: boolean;
+  isDiffView?: boolean;
 };
 
 // ── Loader data shape ──────────────────────────────────────────────────────

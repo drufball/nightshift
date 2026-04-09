@@ -14,6 +14,10 @@ coverageIgnore = [
   "src/routes/teams/$teamId/agents/$agentName.tsx",
   "src/routes/teams/$teamId/projects/$projectName.tsx",
   "src/routes/teams/$teamId/projects/$projectName/agents/$agentName.tsx",
+  "src/routes/teams/$teamId/files.tsx",
+  "src/routes/teams/$teamId/projects/$projectName/index.tsx",
+  "src/routes/teams/$teamId/projects/$projectName/files.tsx",
+  "src/routes/teams/$teamId/projects/$projectName/diff.tsx",
 ]
 # coveragePathIgnorePatterns is what Bun 1.3.11 actually respects (substring match on path)
 coveragePathIgnorePatterns = [
@@ -30,4 +34,8 @@ coveragePathIgnorePatterns = [
   "src/routes/teams/$teamId/agents/$agentName.tsx",
   "src/routes/teams/$teamId/projects/$projectName.tsx",
   "src/routes/teams/$teamId/projects/$projectName/agents/$agentName.tsx",
+  "src/routes/teams/$teamId/files.tsx",
+  "src/routes/teams/$teamId/projects/$projectName/index.tsx",
+  "src/routes/teams/$teamId/projects/$projectName/files.tsx",
+  "src/routes/teams/$teamId/projects/$projectName/diff.tsx",
 ]
