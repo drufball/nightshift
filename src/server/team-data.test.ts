@@ -267,6 +267,25 @@ describe('runConversationLoop', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
+  it('stops loop after user @mention agents respond, even when agent does not reply @user', async () => {
+    // Alice responds without @user or any further @mention — loop must still stop
+    const runAgentFn = mock(async () => 'on it');
+    insertMessage(db, 'test-team', 'user', 'hey @alice please help');
+
+    await runConversationLoop({
+      db,
+      teamId: 'test-team',
+      team,
+      cwd: '/tmp',
+      teamMemberMeta,
+      runAgentFn,
+    });
+
+    expect(runAgentFn).toHaveBeenCalledTimes(1);
+    // Judge must NOT be called — explicit user @mention trumps judge routing
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
   it('exits when judge returns no responders', async () => {
     const runAgentFn = mock(async () => '');
     insertMessage(db, 'test-team', 'user', 'any thoughts?');
