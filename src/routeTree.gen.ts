@@ -80,36 +80,36 @@ const TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/teams/$teamId': typeof TeamsTeamIdRouteWithChildren
-  '/teams/$teamId/': typeof TeamsTeamIdIndexRoute
   '/teams/$teamId/files': typeof TeamsTeamIdFilesRoute
+  '/teams/$teamId/': typeof TeamsTeamIdIndexRoute
   '/teams/$teamId/agents/$agentName': typeof TeamsTeamIdAgentsAgentNameRoute
   '/teams/$teamId/projects/$projectName': typeof TeamsTeamIdProjectsProjectNameRouteWithChildren
-  '/teams/$teamId/projects/$projectName/': typeof TeamsTeamIdProjectsProjectNameIndexRoute
-  '/teams/$teamId/projects/$projectName/files': typeof TeamsTeamIdProjectsProjectNameFilesRoute
   '/teams/$teamId/projects/$projectName/diff': typeof TeamsTeamIdProjectsProjectNameDiffRoute
+  '/teams/$teamId/projects/$projectName/files': typeof TeamsTeamIdProjectsProjectNameFilesRoute
+  '/teams/$teamId/projects/$projectName/': typeof TeamsTeamIdProjectsProjectNameIndexRoute
   '/teams/$teamId/projects/$projectName/agents/$agentName': typeof TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/teams/$teamId': typeof TeamsTeamIdIndexRoute
   '/teams/$teamId/files': typeof TeamsTeamIdFilesRoute
+  '/teams/$teamId': typeof TeamsTeamIdIndexRoute
   '/teams/$teamId/agents/$agentName': typeof TeamsTeamIdAgentsAgentNameRoute
-  '/teams/$teamId/projects/$projectName': typeof TeamsTeamIdProjectsProjectNameIndexRoute
-  '/teams/$teamId/projects/$projectName/files': typeof TeamsTeamIdProjectsProjectNameFilesRoute
   '/teams/$teamId/projects/$projectName/diff': typeof TeamsTeamIdProjectsProjectNameDiffRoute
+  '/teams/$teamId/projects/$projectName/files': typeof TeamsTeamIdProjectsProjectNameFilesRoute
+  '/teams/$teamId/projects/$projectName': typeof TeamsTeamIdProjectsProjectNameIndexRoute
   '/teams/$teamId/projects/$projectName/agents/$agentName': typeof TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/teams/$teamId': typeof TeamsTeamIdRouteWithChildren
-  '/teams/$teamId/': typeof TeamsTeamIdIndexRoute
   '/teams/$teamId/files': typeof TeamsTeamIdFilesRoute
+  '/teams/$teamId/': typeof TeamsTeamIdIndexRoute
   '/teams/$teamId/agents/$agentName': typeof TeamsTeamIdAgentsAgentNameRoute
   '/teams/$teamId/projects/$projectName': typeof TeamsTeamIdProjectsProjectNameRouteWithChildren
-  '/teams/$teamId/projects/$projectName/': typeof TeamsTeamIdProjectsProjectNameIndexRoute
-  '/teams/$teamId/projects/$projectName/files': typeof TeamsTeamIdProjectsProjectNameFilesRoute
   '/teams/$teamId/projects/$projectName/diff': typeof TeamsTeamIdProjectsProjectNameDiffRoute
+  '/teams/$teamId/projects/$projectName/files': typeof TeamsTeamIdProjectsProjectNameFilesRoute
+  '/teams/$teamId/projects/$projectName/': typeof TeamsTeamIdProjectsProjectNameIndexRoute
   '/teams/$teamId/projects/$projectName/agents/$agentName': typeof TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute
 }
 export interface FileRouteTypes {
@@ -117,35 +117,35 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/teams/$teamId'
-    | '/teams/$teamId/'
     | '/teams/$teamId/files'
+    | '/teams/$teamId/'
     | '/teams/$teamId/agents/$agentName'
     | '/teams/$teamId/projects/$projectName'
-    | '/teams/$teamId/projects/$projectName/'
-    | '/teams/$teamId/projects/$projectName/files'
     | '/teams/$teamId/projects/$projectName/diff'
+    | '/teams/$teamId/projects/$projectName/files'
+    | '/teams/$teamId/projects/$projectName/'
     | '/teams/$teamId/projects/$projectName/agents/$agentName'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/teams/$teamId'
     | '/teams/$teamId/files'
+    | '/teams/$teamId'
     | '/teams/$teamId/agents/$agentName'
-    | '/teams/$teamId/projects/$projectName'
-    | '/teams/$teamId/projects/$projectName/files'
     | '/teams/$teamId/projects/$projectName/diff'
+    | '/teams/$teamId/projects/$projectName/files'
+    | '/teams/$teamId/projects/$projectName'
     | '/teams/$teamId/projects/$projectName/agents/$agentName'
   id:
     | '__root__'
     | '/'
     | '/teams/$teamId'
-    | '/teams/$teamId/'
     | '/teams/$teamId/files'
+    | '/teams/$teamId/'
     | '/teams/$teamId/agents/$agentName'
     | '/teams/$teamId/projects/$projectName'
-    | '/teams/$teamId/projects/$projectName/'
-    | '/teams/$teamId/projects/$projectName/files'
     | '/teams/$teamId/projects/$projectName/diff'
+    | '/teams/$teamId/projects/$projectName/files'
+    | '/teams/$teamId/projects/$projectName/'
     | '/teams/$teamId/projects/$projectName/agents/$agentName'
   fileRoutesById: FileRoutesById
 }
@@ -230,20 +230,20 @@ declare module '@tanstack/react-router' {
 }
 
 interface TeamsTeamIdProjectsProjectNameRouteChildren {
-  TeamsTeamIdProjectsProjectNameIndexRoute: typeof TeamsTeamIdProjectsProjectNameIndexRoute
-  TeamsTeamIdProjectsProjectNameFilesRoute: typeof TeamsTeamIdProjectsProjectNameFilesRoute
   TeamsTeamIdProjectsProjectNameDiffRoute: typeof TeamsTeamIdProjectsProjectNameDiffRoute
+  TeamsTeamIdProjectsProjectNameFilesRoute: typeof TeamsTeamIdProjectsProjectNameFilesRoute
+  TeamsTeamIdProjectsProjectNameIndexRoute: typeof TeamsTeamIdProjectsProjectNameIndexRoute
   TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute: typeof TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute
 }
 
 const TeamsTeamIdProjectsProjectNameRouteChildren: TeamsTeamIdProjectsProjectNameRouteChildren =
   {
-    TeamsTeamIdProjectsProjectNameIndexRoute:
-      TeamsTeamIdProjectsProjectNameIndexRoute,
-    TeamsTeamIdProjectsProjectNameFilesRoute:
-      TeamsTeamIdProjectsProjectNameFilesRoute,
     TeamsTeamIdProjectsProjectNameDiffRoute:
       TeamsTeamIdProjectsProjectNameDiffRoute,
+    TeamsTeamIdProjectsProjectNameFilesRoute:
+      TeamsTeamIdProjectsProjectNameFilesRoute,
+    TeamsTeamIdProjectsProjectNameIndexRoute:
+      TeamsTeamIdProjectsProjectNameIndexRoute,
     TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute:
       TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute,
   }
@@ -254,15 +254,15 @@ const TeamsTeamIdProjectsProjectNameRouteWithChildren =
   )
 
 interface TeamsTeamIdRouteChildren {
-  TeamsTeamIdIndexRoute: typeof TeamsTeamIdIndexRoute
   TeamsTeamIdFilesRoute: typeof TeamsTeamIdFilesRoute
+  TeamsTeamIdIndexRoute: typeof TeamsTeamIdIndexRoute
   TeamsTeamIdAgentsAgentNameRoute: typeof TeamsTeamIdAgentsAgentNameRoute
   TeamsTeamIdProjectsProjectNameRoute: typeof TeamsTeamIdProjectsProjectNameRouteWithChildren
 }
 
 const TeamsTeamIdRouteChildren: TeamsTeamIdRouteChildren = {
-  TeamsTeamIdIndexRoute: TeamsTeamIdIndexRoute,
   TeamsTeamIdFilesRoute: TeamsTeamIdFilesRoute,
+  TeamsTeamIdIndexRoute: TeamsTeamIdIndexRoute,
   TeamsTeamIdAgentsAgentNameRoute: TeamsTeamIdAgentsAgentNameRoute,
   TeamsTeamIdProjectsProjectNameRoute:
     TeamsTeamIdProjectsProjectNameRouteWithChildren,
