@@ -14,15 +14,15 @@
  *   - showInlinePicker / inputDisabled / inputPlaceholder (derived render values)
  *
  * What IS extracted here:
- *   - All state (messages, agents, projects, allTeams, input, sending, mode, view,
+ *   - All state (messages, agents, projects, allTeams, input, sending, mode,
  *     overlay, focusedIdx, projectMessages, projectSending, sessionData)
- *   - modeRef / viewRef / overlayRef / focusedIdxRef (kept in sync via effects)
+ *   - modeRef / routeCtxRef / overlayRef / focusedIdxRef (kept in sync via effects)
  *   - navBlocksRef + navBlocks useMemo
  *   - pickerItems / mentionFilteredAgents useMemos
  *   - selectedAgentStatus / workingAgents / currentProjectId derived values
  *   - All async send / load handlers (handleTeamSend, handleProjectSend, handleSend)
  *   - Server-fn polling effects (team send, project send, agent session)
- *   - project-chat message load effect (on view change)
+ *   - project-chat message load effect (on routeCtx change)
  *   - Server function wrappers (useServerFn calls)
  */
 
@@ -66,22 +66,20 @@ export type SessionData = {
   statusText: string | null;
 };
 
-export type ViewState =
-  | { type: 'chat' }
-  | { type: 'project-chat'; projectId: string; projectName: string }
-  | {
-      type: 'agent-session';
-      agentName: string;
-      projectId?: string;
-      projectName?: string;
-    };
-
 export type OverlayState =
   | { kind: 'teams'; cursor: number }
   | { kind: 'projects'; cursor: number }
   | { kind: 'projects-create' }
   | { kind: 'agents'; cursor: number }
   | { kind: 'mention'; atStart: number; query: string; cursor: number };
+
+// Route context: which project/agent is currently shown (derived from URL).
+export type TeamRouteContext = {
+  currentProjectName?: string;
+  currentAgentName?: string;
+  isFilesView?: boolean;
+  isDiffView?: boolean;
+};
 
 // ── Loader data shape ──────────────────────────────────────────────────────
 
@@ -107,8 +105,12 @@ function applySessionsToAgents(
 
 // ── Hook ───────────────────────────────────────────────────────────────────
 
-export function useTeamPage(initialData: TeamPageLoaderData) {
+export function useTeamPage(
+  initialData: TeamPageLoaderData,
+  routeCtx: TeamRouteContext = {},
+) {
   const { teamId } = initialData;
+  const { currentProjectName, currentAgentName } = routeCtx;
   const navigate = useNavigate();
 
   // ── State ──────────────────────────────────────────────────────────────
@@ -121,7 +123,6 @@ export function useTeamPage(initialData: TeamPageLoaderData) {
   const [sending, setSending] = useState(false);
 
   const [mode, setMode] = useState<'insert' | 'normal'>('normal');
-  const [view, setView] = useState<ViewState>({ type: 'chat' });
   const [overlay, setOverlay] = useState<OverlayState | null>(null);
   const [focusedIdx, setFocusedIdx] = useState(-1);
 
@@ -131,25 +132,23 @@ export function useTeamPage(initialData: TeamPageLoaderData) {
 
   // Sync state when navigating to a different team (loader returns new data
   // but the component is reused, so useState initializers don't re-run).
-  // Keyed on teamId (not the whole initialData object) to avoid infinite loops
-  // when the parent passes a freshly-constructed object on every render.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally sync all team state when teamId changes
   useEffect(() => {
     setMessages(initialData.messages);
     setAgents(initialData.agents);
     setProjects(initialData.projects);
     setAllTeams(initialData.teams);
-    setView((prev) => (prev.type === 'chat' ? prev : { type: 'chat' }));
     setOverlay(null);
     setFocusedIdx(-1);
     setSessionData(null);
+    setProjectMessages([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId]);
 
   // ── Refs (kept in sync via effects; used inside global keydown handler) ─
 
   const modeRef = useRef(mode);
-  const viewRef = useRef(view);
+  const routeCtxRef = useRef(routeCtx);
   const overlayRef = useRef(overlay);
   const focusedIdxRef = useRef(focusedIdx);
   const navBlocksRef = useRef<NavBlock[]>([]);
@@ -158,8 +157,8 @@ export function useTeamPage(initialData: TeamPageLoaderData) {
     modeRef.current = mode;
   }, [mode]);
   useEffect(() => {
-    viewRef.current = view;
-  }, [view]);
+    routeCtxRef.current = routeCtx;
+  }, [routeCtx]);
   useEffect(() => {
     overlayRef.current = overlay;
   }, [overlay]);
@@ -179,25 +178,28 @@ export function useTeamPage(initialData: TeamPageLoaderData) {
 
   // ── Derived values ────────────────────────────────────────────────────
 
-  const currentProjectId = view.type === 'project-chat' ? view.projectId : null;
+  // Look up current project by name from projects list
+  const currentProject = currentProjectName
+    ? projects.find((p) => p.name === currentProjectName)
+    : undefined;
+  const currentProjectId = currentProject?.id;
 
-  const selectedAgentStatus =
-    view.type === 'agent-session'
-      ? (agents.find(
-          (a) =>
-            a.name ===
-            (view as { type: 'agent-session'; agentName: string }).agentName,
-        )?.status ?? 'idle')
-      : 'idle';
+  const selectedAgentStatus = currentAgentName
+    ? (agents.find((a) => a.name === currentAgentName)?.status ?? 'idle')
+    : 'idle';
 
   const navBlocks: NavBlock[] = useMemo(() => {
-    if (view.type === 'chat') return messages.flatMap(msgToNavBlocks);
-    if (view.type === 'project-chat')
-      return projectMessages.flatMap(msgToNavBlocks);
-    if (view.type === 'agent-session' && sessionData)
+    if (currentAgentName && sessionData)
       return flattenSessionBlocks(sessionData.messages);
-    return [];
-  }, [view, messages, projectMessages, sessionData]);
+    if (currentProjectId) return projectMessages.flatMap(msgToNavBlocks);
+    return messages.flatMap(msgToNavBlocks);
+  }, [
+    currentAgentName,
+    currentProjectId,
+    messages,
+    projectMessages,
+    sessionData,
+  ]);
 
   useEffect(() => {
     navBlocksRef.current = navBlocks;
@@ -269,10 +271,11 @@ export function useTeamPage(initialData: TeamPageLoaderData) {
     getProjectMsgsFn,
   ]);
 
-  // Load (and poll) agent session when view changes to agent-session
+  // Load (and poll) agent session when in agent context
   useEffect(() => {
-    if (view.type !== 'agent-session') return;
-    const { agentName, projectId } = view;
+    if (!currentAgentName) return;
+    const agentName = currentAgentName;
+    const projectId = currentProjectId;
     async function fetchSession() {
       const data = await getAgentSessionFn({
         data: { teamId, agentName, projectId },
@@ -283,16 +286,32 @@ export function useTeamPage(initialData: TeamPageLoaderData) {
     if (selectedAgentStatus !== 'working') return;
     const id = setInterval(fetchSession, 2000);
     return () => clearInterval(id);
-  }, [view, selectedAgentStatus, teamId, getAgentSessionFn]);
+  }, [
+    currentAgentName,
+    currentProjectId,
+    selectedAgentStatus,
+    teamId,
+    getAgentSessionFn,
+  ]);
 
-  // Load project messages when view switches to project-chat
+  // Load project messages when entering a project view
   useEffect(() => {
-    if (view.type !== 'project-chat') return;
-    const { projectId } = view;
+    if (!currentProjectId) {
+      setProjectMessages([]);
+      return;
+    }
+    const projectId = currentProjectId;
     getProjectMsgsFn({ data: { teamId, projectId } }).then((msgs) => {
       setProjectMessages(msgs as Message[]);
     });
-  }, [view, teamId, getProjectMsgsFn]);
+  }, [currentProjectId, teamId, getProjectMsgsFn]);
+
+  // Reset session data when leaving agent view
+  useEffect(() => {
+    if (!currentAgentName) {
+      setSessionData(null);
+    }
+  }, [currentAgentName]);
 
   // ── Async handlers ─────────────────────────────────────────────────────
 
@@ -350,8 +369,12 @@ export function useTeamPage(initialData: TeamPageLoaderData) {
     const content = input.trim();
     if (!content) return;
     setInput('');
-    if (view.type === 'project-chat') {
-      handleProjectSend(view.projectId, content);
+    // Look up project by name to get its ID for sending
+    const project = currentProjectName
+      ? projects.find((p) => p.name === currentProjectName)
+      : null;
+    if (project) {
+      handleProjectSend(project.id, content);
     } else {
       handleTeamSend(content);
     }
@@ -379,23 +402,21 @@ export function useTeamPage(initialData: TeamPageLoaderData) {
     setFocusedIdx(-1);
   }
 
-  // navigateBack: '-' key logic extracted so it can be called from the
-  // global keydown handler that lives in $teamId.tsx
+  // navigateBack: '-' key logic — uses routeCtxRef to avoid stale closures
   function navigateBack() {
-    const currentView = viewRef.current;
-    if (currentView.type === 'chat') {
-      navigate({ to: '/' });
-    } else if (currentView.type === 'agent-session' && currentView.projectId) {
-      setView({
-        type: 'project-chat',
-        projectId: currentView.projectId,
-        projectName: currentView.projectName ?? '',
+    const ctx = routeCtxRef.current;
+    if (ctx.currentAgentName && ctx.currentProjectName) {
+      // From agent session within a project → back to project chat
+      navigate({
+        to: '/teams/$teamId/projects/$projectName',
+        params: { teamId, projectName: ctx.currentProjectName },
       });
-    } else if (
-      currentView.type === 'project-chat' ||
-      currentView.type === 'agent-session'
-    ) {
-      setView({ type: 'chat' });
+    } else if (ctx.currentProjectName || ctx.currentAgentName) {
+      // From project chat or standalone agent → back to team chat
+      navigate({ to: '/teams/$teamId', params: { teamId } });
+    } else {
+      // From team chat → back to home
+      navigate({ to: '/' });
     }
     setFocusedIdx(-1);
   }
@@ -405,9 +426,7 @@ export function useTeamPage(initialData: TeamPageLoaderData) {
     navigate({ to: '/teams/$teamId', params: { teamId: teamName } });
   }
 
-  // handleInputChange: overlay/mention logic (extracted without DOM side-effects;
-  // the component passes the event through and also handles DOM-specific stuff
-  // like the textarea resize)
+  // handleInputChange: overlay/mention logic
   function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const value = e.target.value;
     setInput(value);
@@ -467,8 +486,6 @@ export function useTeamPage(initialData: TeamPageLoaderData) {
     setSending,
     mode,
     setMode,
-    view,
-    setView,
     overlay,
     setOverlay,
     focusedIdx,
@@ -482,7 +499,7 @@ export function useTeamPage(initialData: TeamPageLoaderData) {
 
     // Refs
     modeRef,
-    viewRef,
+    routeCtxRef,
     overlayRef,
     focusedIdxRef,
     navBlocksRef,

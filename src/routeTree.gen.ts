@@ -11,6 +11,14 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TeamsTeamIdRouteImport } from './routes/teams/$teamId'
+import { Route as TeamsTeamIdIndexRouteImport } from './routes/teams/$teamId/index'
+import { Route as TeamsTeamIdFilesRouteImport } from './routes/teams/$teamId/files'
+import { Route as TeamsTeamIdProjectsProjectNameRouteImport } from './routes/teams/$teamId/projects/$projectName'
+import { Route as TeamsTeamIdAgentsAgentNameRouteImport } from './routes/teams/$teamId/agents/$agentName'
+import { Route as TeamsTeamIdProjectsProjectNameIndexRouteImport } from './routes/teams/$teamId/projects/$projectName/index'
+import { Route as TeamsTeamIdProjectsProjectNameFilesRouteImport } from './routes/teams/$teamId/projects/$projectName/files'
+import { Route as TeamsTeamIdProjectsProjectNameDiffRouteImport } from './routes/teams/$teamId/projects/$projectName/diff'
+import { Route as TeamsTeamIdProjectsProjectNameAgentsAgentNameRouteImport } from './routes/teams/$teamId/projects/$projectName/agents/$agentName'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +30,128 @@ const TeamsTeamIdRoute = TeamsTeamIdRouteImport.update({
   path: '/teams/$teamId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TeamsTeamIdIndexRoute = TeamsTeamIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => TeamsTeamIdRoute,
+} as any)
+const TeamsTeamIdFilesRoute = TeamsTeamIdFilesRouteImport.update({
+  id: '/files',
+  path: '/files',
+  getParentRoute: () => TeamsTeamIdRoute,
+} as any)
+const TeamsTeamIdProjectsProjectNameRoute =
+  TeamsTeamIdProjectsProjectNameRouteImport.update({
+    id: '/projects/$projectName',
+    path: '/projects/$projectName',
+    getParentRoute: () => TeamsTeamIdRoute,
+  } as any)
+const TeamsTeamIdAgentsAgentNameRoute =
+  TeamsTeamIdAgentsAgentNameRouteImport.update({
+    id: '/agents/$agentName',
+    path: '/agents/$agentName',
+    getParentRoute: () => TeamsTeamIdRoute,
+  } as any)
+const TeamsTeamIdProjectsProjectNameIndexRoute =
+  TeamsTeamIdProjectsProjectNameIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => TeamsTeamIdProjectsProjectNameRoute,
+  } as any)
+const TeamsTeamIdProjectsProjectNameFilesRoute =
+  TeamsTeamIdProjectsProjectNameFilesRouteImport.update({
+    id: '/files',
+    path: '/files',
+    getParentRoute: () => TeamsTeamIdProjectsProjectNameRoute,
+  } as any)
+const TeamsTeamIdProjectsProjectNameDiffRoute =
+  TeamsTeamIdProjectsProjectNameDiffRouteImport.update({
+    id: '/diff',
+    path: '/diff',
+    getParentRoute: () => TeamsTeamIdProjectsProjectNameRoute,
+  } as any)
+const TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute =
+  TeamsTeamIdProjectsProjectNameAgentsAgentNameRouteImport.update({
+    id: '/agents/$agentName',
+    path: '/agents/$agentName',
+    getParentRoute: () => TeamsTeamIdProjectsProjectNameRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/teams/$teamId': typeof TeamsTeamIdRoute
+  '/teams/$teamId': typeof TeamsTeamIdRouteWithChildren
+  '/teams/$teamId/': typeof TeamsTeamIdIndexRoute
+  '/teams/$teamId/files': typeof TeamsTeamIdFilesRoute
+  '/teams/$teamId/agents/$agentName': typeof TeamsTeamIdAgentsAgentNameRoute
+  '/teams/$teamId/projects/$projectName': typeof TeamsTeamIdProjectsProjectNameRouteWithChildren
+  '/teams/$teamId/projects/$projectName/': typeof TeamsTeamIdProjectsProjectNameIndexRoute
+  '/teams/$teamId/projects/$projectName/files': typeof TeamsTeamIdProjectsProjectNameFilesRoute
+  '/teams/$teamId/projects/$projectName/diff': typeof TeamsTeamIdProjectsProjectNameDiffRoute
+  '/teams/$teamId/projects/$projectName/agents/$agentName': typeof TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/teams/$teamId': typeof TeamsTeamIdRoute
+  '/teams/$teamId': typeof TeamsTeamIdIndexRoute
+  '/teams/$teamId/files': typeof TeamsTeamIdFilesRoute
+  '/teams/$teamId/agents/$agentName': typeof TeamsTeamIdAgentsAgentNameRoute
+  '/teams/$teamId/projects/$projectName': typeof TeamsTeamIdProjectsProjectNameIndexRoute
+  '/teams/$teamId/projects/$projectName/files': typeof TeamsTeamIdProjectsProjectNameFilesRoute
+  '/teams/$teamId/projects/$projectName/diff': typeof TeamsTeamIdProjectsProjectNameDiffRoute
+  '/teams/$teamId/projects/$projectName/agents/$agentName': typeof TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/teams/$teamId': typeof TeamsTeamIdRoute
+  '/teams/$teamId': typeof TeamsTeamIdRouteWithChildren
+  '/teams/$teamId/': typeof TeamsTeamIdIndexRoute
+  '/teams/$teamId/files': typeof TeamsTeamIdFilesRoute
+  '/teams/$teamId/agents/$agentName': typeof TeamsTeamIdAgentsAgentNameRoute
+  '/teams/$teamId/projects/$projectName': typeof TeamsTeamIdProjectsProjectNameRouteWithChildren
+  '/teams/$teamId/projects/$projectName/': typeof TeamsTeamIdProjectsProjectNameIndexRoute
+  '/teams/$teamId/projects/$projectName/files': typeof TeamsTeamIdProjectsProjectNameFilesRoute
+  '/teams/$teamId/projects/$projectName/diff': typeof TeamsTeamIdProjectsProjectNameDiffRoute
+  '/teams/$teamId/projects/$projectName/agents/$agentName': typeof TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/teams/$teamId'
+  fullPaths:
+    | '/'
+    | '/teams/$teamId'
+    | '/teams/$teamId/'
+    | '/teams/$teamId/files'
+    | '/teams/$teamId/agents/$agentName'
+    | '/teams/$teamId/projects/$projectName'
+    | '/teams/$teamId/projects/$projectName/'
+    | '/teams/$teamId/projects/$projectName/files'
+    | '/teams/$teamId/projects/$projectName/diff'
+    | '/teams/$teamId/projects/$projectName/agents/$agentName'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/teams/$teamId'
-  id: '__root__' | '/' | '/teams/$teamId'
+  to:
+    | '/'
+    | '/teams/$teamId'
+    | '/teams/$teamId/files'
+    | '/teams/$teamId/agents/$agentName'
+    | '/teams/$teamId/projects/$projectName'
+    | '/teams/$teamId/projects/$projectName/files'
+    | '/teams/$teamId/projects/$projectName/diff'
+    | '/teams/$teamId/projects/$projectName/agents/$agentName'
+  id:
+    | '__root__'
+    | '/'
+    | '/teams/$teamId'
+    | '/teams/$teamId/'
+    | '/teams/$teamId/files'
+    | '/teams/$teamId/agents/$agentName'
+    | '/teams/$teamId/projects/$projectName'
+    | '/teams/$teamId/projects/$projectName/'
+    | '/teams/$teamId/projects/$projectName/files'
+    | '/teams/$teamId/projects/$projectName/diff'
+    | '/teams/$teamId/projects/$projectName/agents/$agentName'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  TeamsTeamIdRoute: typeof TeamsTeamIdRoute
+  TeamsTeamIdRoute: typeof TeamsTeamIdRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +170,111 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamsTeamIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/teams/$teamId/': {
+      id: '/teams/$teamId/'
+      path: '/'
+      fullPath: '/teams/$teamId/'
+      preLoaderRoute: typeof TeamsTeamIdIndexRouteImport
+      parentRoute: typeof TeamsTeamIdRoute
+    }
+    '/teams/$teamId/files': {
+      id: '/teams/$teamId/files'
+      path: '/files'
+      fullPath: '/teams/$teamId/files'
+      preLoaderRoute: typeof TeamsTeamIdFilesRouteImport
+      parentRoute: typeof TeamsTeamIdRoute
+    }
+    '/teams/$teamId/projects/$projectName': {
+      id: '/teams/$teamId/projects/$projectName'
+      path: '/projects/$projectName'
+      fullPath: '/teams/$teamId/projects/$projectName'
+      preLoaderRoute: typeof TeamsTeamIdProjectsProjectNameRouteImport
+      parentRoute: typeof TeamsTeamIdRoute
+    }
+    '/teams/$teamId/agents/$agentName': {
+      id: '/teams/$teamId/agents/$agentName'
+      path: '/agents/$agentName'
+      fullPath: '/teams/$teamId/agents/$agentName'
+      preLoaderRoute: typeof TeamsTeamIdAgentsAgentNameRouteImport
+      parentRoute: typeof TeamsTeamIdRoute
+    }
+    '/teams/$teamId/projects/$projectName/': {
+      id: '/teams/$teamId/projects/$projectName/'
+      path: '/'
+      fullPath: '/teams/$teamId/projects/$projectName/'
+      preLoaderRoute: typeof TeamsTeamIdProjectsProjectNameIndexRouteImport
+      parentRoute: typeof TeamsTeamIdProjectsProjectNameRoute
+    }
+    '/teams/$teamId/projects/$projectName/files': {
+      id: '/teams/$teamId/projects/$projectName/files'
+      path: '/files'
+      fullPath: '/teams/$teamId/projects/$projectName/files'
+      preLoaderRoute: typeof TeamsTeamIdProjectsProjectNameFilesRouteImport
+      parentRoute: typeof TeamsTeamIdProjectsProjectNameRoute
+    }
+    '/teams/$teamId/projects/$projectName/diff': {
+      id: '/teams/$teamId/projects/$projectName/diff'
+      path: '/diff'
+      fullPath: '/teams/$teamId/projects/$projectName/diff'
+      preLoaderRoute: typeof TeamsTeamIdProjectsProjectNameDiffRouteImport
+      parentRoute: typeof TeamsTeamIdProjectsProjectNameRoute
+    }
+    '/teams/$teamId/projects/$projectName/agents/$agentName': {
+      id: '/teams/$teamId/projects/$projectName/agents/$agentName'
+      path: '/agents/$agentName'
+      fullPath: '/teams/$teamId/projects/$projectName/agents/$agentName'
+      preLoaderRoute: typeof TeamsTeamIdProjectsProjectNameAgentsAgentNameRouteImport
+      parentRoute: typeof TeamsTeamIdProjectsProjectNameRoute
+    }
   }
 }
 
+interface TeamsTeamIdProjectsProjectNameRouteChildren {
+  TeamsTeamIdProjectsProjectNameIndexRoute: typeof TeamsTeamIdProjectsProjectNameIndexRoute
+  TeamsTeamIdProjectsProjectNameFilesRoute: typeof TeamsTeamIdProjectsProjectNameFilesRoute
+  TeamsTeamIdProjectsProjectNameDiffRoute: typeof TeamsTeamIdProjectsProjectNameDiffRoute
+  TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute: typeof TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute
+}
+
+const TeamsTeamIdProjectsProjectNameRouteChildren: TeamsTeamIdProjectsProjectNameRouteChildren =
+  {
+    TeamsTeamIdProjectsProjectNameIndexRoute:
+      TeamsTeamIdProjectsProjectNameIndexRoute,
+    TeamsTeamIdProjectsProjectNameFilesRoute:
+      TeamsTeamIdProjectsProjectNameFilesRoute,
+    TeamsTeamIdProjectsProjectNameDiffRoute:
+      TeamsTeamIdProjectsProjectNameDiffRoute,
+    TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute:
+      TeamsTeamIdProjectsProjectNameAgentsAgentNameRoute,
+  }
+
+const TeamsTeamIdProjectsProjectNameRouteWithChildren =
+  TeamsTeamIdProjectsProjectNameRoute._addFileChildren(
+    TeamsTeamIdProjectsProjectNameRouteChildren,
+  )
+
+interface TeamsTeamIdRouteChildren {
+  TeamsTeamIdIndexRoute: typeof TeamsTeamIdIndexRoute
+  TeamsTeamIdFilesRoute: typeof TeamsTeamIdFilesRoute
+  TeamsTeamIdAgentsAgentNameRoute: typeof TeamsTeamIdAgentsAgentNameRoute
+  TeamsTeamIdProjectsProjectNameRoute: typeof TeamsTeamIdProjectsProjectNameRouteWithChildren
+}
+
+const TeamsTeamIdRouteChildren: TeamsTeamIdRouteChildren = {
+  TeamsTeamIdIndexRoute: TeamsTeamIdIndexRoute,
+  TeamsTeamIdFilesRoute: TeamsTeamIdFilesRoute,
+  TeamsTeamIdAgentsAgentNameRoute: TeamsTeamIdAgentsAgentNameRoute,
+  TeamsTeamIdProjectsProjectNameRoute:
+    TeamsTeamIdProjectsProjectNameRouteWithChildren,
+}
+
+const TeamsTeamIdRouteWithChildren = TeamsTeamIdRoute._addFileChildren(
+  TeamsTeamIdRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  TeamsTeamIdRoute: TeamsTeamIdRoute,
+  TeamsTeamIdRoute: TeamsTeamIdRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
