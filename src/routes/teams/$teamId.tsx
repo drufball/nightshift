@@ -1,10 +1,22 @@
 import { Outlet, createFileRoute, useMatches } from '@tanstack/react-router';
+import { useServerFn } from '@tanstack/react-start';
 import type React from 'react';
-import { createContext, useContext, useEffect, useMemo, useRef } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Separator } from '~/components/ui/separator';
 import type { Project } from '~/db/projects';
 import type { AgentSession } from '~/db/sessions';
 import { cn } from '~/lib/utils';
+import {
+  type DiffStats,
+  getProjectDiffFn as getProjectDiffServerFn,
+} from '~/server/artefacts';
 import { getTeamView } from '~/server/team-data';
 import type { TeamMeta } from '~/server/teams';
 import { listTeams } from '~/server/teams';
@@ -171,6 +183,22 @@ function TeamPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasInitialScrolled = useRef(false);
+
+  // ── Diff stats for status bar ──────────────────────────────────────────────
+  const getProjectDiffFn = useServerFn(getProjectDiffServerFn);
+  const [diffStats, setDiffStats] = useState<DiffStats | null>(null);
+
+  useEffect(() => {
+    if (!currentProjectId) {
+      setDiffStats(null);
+      return;
+    }
+    const project = projects.find((p) => p.id === currentProjectId);
+    if (!project) return;
+    getProjectDiffFn({ data: { branch: project.branch } }).then((result) => {
+      setDiffStats(result.stats);
+    });
+  }, [currentProjectId, projects, getProjectDiffFn]);
 
   // Scroll to bottom when messages change
   // biome-ignore lint/correctness/useExhaustiveDependencies: messages/projectMessages trigger scroll
@@ -757,23 +785,27 @@ function TeamPage() {
             files
           </button>
           <span className="text-muted-foreground/30 ml-0.5">(f)</span>
-          {currentProjectId && !currentAgentName && currentProjectName && (
-            <>
-              <button
-                type="button"
-                onClick={() =>
-                  navigate({
-                    to: '/teams/$teamId/projects/$projectName/diff',
-                    params: { teamId, projectName: currentProjectName },
-                  })
-                }
-                className="text-muted-foreground/50 hover:text-primary hover:underline ml-3"
-              >
-                diff
-              </button>
-              <span className="text-muted-foreground/30 ml-0.5">(d)</span>
-            </>
-          )}
+          {currentProjectId &&
+            !currentAgentName &&
+            currentProjectName &&
+            diffStats !== null && (
+              <>
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate({
+                      to: '/teams/$teamId/projects/$projectName/diff',
+                      params: { teamId, projectName: currentProjectName },
+                    })
+                  }
+                  className="text-muted-foreground/50 hover:text-primary hover:underline ml-3"
+                >
+                  {diffStats.filesChanged} files changed +{diffStats.insertions}{' '}
+                  -{diffStats.deletions}
+                </button>
+                <span className="text-muted-foreground/30 ml-0.5">(d)</span>
+              </>
+            )}
           {mode === 'normal' && (
             <span className="ml-auto text-muted-foreground/50">NORMAL</span>
           )}
