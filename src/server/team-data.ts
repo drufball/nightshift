@@ -97,12 +97,20 @@ export async function runConversationJudge(
     .replace(/\s*```$/, '')
     .trim();
 
-  const parsed = JSON.parse(text); // throws on invalid JSON — caller handles it
-  if (!Array.isArray(parsed.next_responders)) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new Error(
+      `Judge returned invalid JSON: ${err}\nRaw response: ${raw}`,
+    );
+  }
+  const result = parsed as Record<string, unknown>;
+  if (!Array.isArray(result.next_responders)) {
     throw new Error(`Judge returned unexpected shape: ${text}`);
   }
   // Only allow valid agent names
-  return (parsed.next_responders as string[]).filter((r) =>
+  return (result.next_responders as string[]).filter((r) =>
     allAgentNames.includes(r),
   );
 }
