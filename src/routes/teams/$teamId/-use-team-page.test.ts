@@ -134,11 +134,6 @@ describe('useTeamPage – initial state', () => {
     expect(result.current.projects[0].name).toBe('project-alpha');
   });
 
-  it('starts in chat view', () => {
-    const { result } = renderHook(() => useTeamPage(makeLoaderData()));
-    expect(result.current.view).toEqual({ type: 'chat' });
-  });
-
   it('starts in normal mode with no overlay', () => {
     const { result } = renderHook(() => useTeamPage(makeLoaderData()));
     expect(result.current.mode).toBe('normal');
@@ -338,18 +333,15 @@ describe('useTeamPage – handleSend', () => {
     expect(mockSendProjectMessage).not.toHaveBeenCalled();
   });
 
-  it('routes to handleProjectSend when in project-chat view', async () => {
+  it('routes to handleProjectSend when currentProjectName is set in routeCtx', async () => {
     mockSendProjectMessage.mockImplementation(async () => undefined);
     mockGetProjectMessages.mockImplementation(async () => []);
 
-    const { result } = renderHook(() => useTeamPage(makeLoaderData()));
+    const { result } = renderHook(() =>
+      useTeamPage(makeLoaderData(), { currentProjectName: 'project-alpha' }),
+    );
 
     act(() => {
-      result.current.setView({
-        type: 'project-chat',
-        projectId: 'p1',
-        projectName: 'alpha',
-      });
       result.current.setInput('project msg');
     });
 
@@ -589,7 +581,7 @@ describe('useTeamPage – picker open helpers', () => {
 // ── navigateBack ───────────────────────────────────────────────────────────
 
 describe('useTeamPage – navigateBack', () => {
-  it('navigates to / from chat view', () => {
+  it('navigates to / from team chat (no routeCtx)', () => {
     const { result } = renderHook(() => useTeamPage(makeLoaderData()));
 
     act(() => {
@@ -601,60 +593,62 @@ describe('useTeamPage – navigateBack', () => {
     expect(call.to).toBe('/');
   });
 
-  it('returns from project-chat to chat', async () => {
-    const { result } = renderHook(() => useTeamPage(makeLoaderData()));
-
-    await act(async () => {
-      result.current.setView({
-        type: 'project-chat',
-        projectId: 'p1',
-        projectName: 'alpha',
-      });
-    });
+  it('navigates to /teams/$teamId from project-chat view', () => {
+    const { result } = renderHook(() =>
+      useTeamPage(makeLoaderData(), { currentProjectName: 'project-alpha' }),
+    );
 
     act(() => {
       result.current.navigateBack();
     });
 
-    expect(result.current.view).toEqual({ type: 'chat' });
-    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+    const call = mockNavigate.mock.calls[0][0] as {
+      to: string;
+      params: Record<string, string>;
+    };
+    expect(call.to).toBe('/teams/$teamId');
+    expect(call.params.teamId).toBe('team1');
   });
 
-  it('returns from agent-session to chat when no project context', async () => {
-    const { result } = renderHook(() => useTeamPage(makeLoaderData()));
-
-    await act(async () => {
-      result.current.setView({ type: 'agent-session', agentName: 'aria' });
-    });
+  it('navigates to /teams/$teamId from agent-session without project', () => {
+    const { result } = renderHook(() =>
+      useTeamPage(makeLoaderData(), { currentAgentName: 'aria' }),
+    );
 
     act(() => {
       result.current.navigateBack();
     });
 
-    expect(result.current.view).toEqual({ type: 'chat' });
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+    const call = mockNavigate.mock.calls[0][0] as {
+      to: string;
+      params: Record<string, string>;
+    };
+    expect(call.to).toBe('/teams/$teamId');
+    expect(call.params.teamId).toBe('team1');
   });
 
-  it('returns from agent-session to project-chat when projectId is set', async () => {
-    const { result } = renderHook(() => useTeamPage(makeLoaderData()));
+  it('navigates to project URL from agent-session within a project', () => {
+    const { result } = renderHook(() =>
+      useTeamPage(makeLoaderData(), {
+        currentProjectName: 'project-alpha',
+        currentAgentName: 'aria',
+      }),
+    );
 
-    await act(async () => {
-      result.current.setView({
-        type: 'agent-session',
-        agentName: 'aria',
-        projectId: 'p1',
-        projectName: 'alpha',
-      });
-    });
-
-    await act(async () => {
+    act(() => {
       result.current.navigateBack();
     });
 
-    expect(result.current.view).toEqual({
-      type: 'project-chat',
-      projectId: 'p1',
-      projectName: 'alpha',
-    });
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+    const call = mockNavigate.mock.calls[0][0] as {
+      to: string;
+      params: Record<string, string>;
+    };
+    expect(call.to).toBe('/teams/$teamId/projects/$projectName');
+    expect(call.params.teamId).toBe('team1');
+    expect(call.params.projectName).toBe('project-alpha');
   });
 });
 

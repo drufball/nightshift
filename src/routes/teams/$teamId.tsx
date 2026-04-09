@@ -1,7 +1,15 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { Outlet, createFileRoute, useMatches } from '@tanstack/react-router';
 import { useServerFn } from '@tanstack/react-start';
 import type React from 'react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Separator } from '~/components/ui/separator';
 import type { Project } from '~/db/projects';
 import type { AgentSession } from '~/db/sessions';
@@ -18,16 +26,16 @@ import type { TeamMeta } from '~/server/teams';
 import { listTeams } from '~/server/teams';
 import { AgentSessionView } from './$teamId/-agent-session-view';
 import { Breadcrumb } from './$teamId/-breadcrumb';
-import { ChatView } from './$teamId/-chat-view';
 import { DiffView } from './$teamId/-diff-view';
 import { FileContentView } from './$teamId/-file-content-view';
 import { FilesView } from './$teamId/-files-view';
 import { InlinePicker } from './$teamId/-inline-picker';
 import { navBlockText } from './$teamId/-nav-blocks';
+import type { NavBlock } from './$teamId/-nav-blocks';
 import {
   type AgentInfo,
   type OverlayState,
-  type ViewState,
+  type SessionData,
   useTeamPage,
 } from './$teamId/-use-team-page';
 
@@ -46,7 +54,33 @@ export const Route = createFileRoute('/teams/$teamId')({
 });
 
 // ── Types re-exported for test compatibility ────────────────────────────────
-export type { ViewState } from './$teamId/-use-team-page';
+// ViewState is no longer used internally — kept only for external callers
+export type ViewState =
+  | { type: 'chat' }
+  | { type: 'project-chat'; projectId: string; projectName: string }
+  | {
+      type: 'agent-session';
+      agentName: string;
+      projectId?: string;
+      projectName?: string;
+    };
+
+// ── React Context (shared between layout and child routes) ─────────────────
+
+export type TeamPageContextType = {
+  navBlocks: NavBlock[];
+  focusedIdx: number;
+  setFocusedIdx: React.Dispatch<React.SetStateAction<number>>;
+  bottomRef: React.RefObject<HTMLDivElement | null>;
+};
+
+export const TeamPageContext = createContext<TeamPageContextType | null>(null);
+
+export function useTeamPageContext() {
+  const ctx = useContext(TeamPageContext);
+  if (!ctx) throw new Error('useTeamPageContext must be used within TeamPage');
+  return ctx;
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -72,11 +106,43 @@ export function applySessionsToAgents(
 // inside use-team-page.ts; re-export keeps the import live here.
 export type { AgentInfo, OverlayState };
 
+// ── Route-ID constants for useMatches ─────────────────────────────────────
+
+const PROJECT_ROUTE_ID = '/teams/$teamId/projects/$projectName';
+const AGENT_IN_PROJECT_ROUTE_ID =
+  '/teams/$teamId/projects/$projectName/agents/$agentName';
+const AGENT_ROUTE_ID = '/teams/$teamId/agents/$agentName';
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 function TeamPage() {
   const initialData = Route.useLoaderData();
   const { teamId } = Route.useParams();
+
+  // ── Derive route context from current URL ─────────────────────────────────
+  const matches = useMatches();
+
+  const projectMatch = matches.find((m) => m.routeId === PROJECT_ROUTE_ID);
+  const agentInProjectMatch = matches.find(
+    (m) => m.routeId === AGENT_IN_PROJECT_ROUTE_ID,
+  );
+  const agentOnlyMatch = matches.find((m) => m.routeId === AGENT_ROUTE_ID);
+
+  const currentProjectName =
+    (projectMatch?.params as { projectName?: string } | undefined)
+      ?.projectName ??
+    (agentInProjectMatch?.params as { projectName?: string } | undefined)
+      ?.projectName;
+
+  const currentAgentName =
+    (agentInProjectMatch?.params as { agentName?: string } | undefined)
+      ?.agentName ??
+    (agentOnlyMatch?.params as { agentName?: string } | undefined)?.agentName;
+
+  const routeCtx = useMemo(
+    () => ({ currentProjectName, currentAgentName }),
+    [currentProjectName, currentAgentName],
+  );
 
   const {
     messages,
@@ -87,8 +153,6 @@ function TeamPage() {
     sending,
     mode,
     setMode,
-    view,
-    setView,
     overlay,
     setOverlay,
     focusedIdx,
@@ -98,7 +162,7 @@ function TeamPage() {
     sessionData,
     setSessionData,
     modeRef,
-    viewRef,
+    routeCtxRef,
     overlayRef,
     focusedIdxRef,
     navBlocksRef,
@@ -116,7 +180,8 @@ function TeamPage() {
     navigateBack,
     navigateToTeam,
     navigate,
-  } = useTeamPage({ ...initialData, teamId });
+    currentProjectId,
+  } = useTeamPage({ ...initialData, teamId }, routeCtx);
 
   // ── Artefact state ─────────────────────────────────────────────────────────
   const [artefactView, setArtefactView] = useState<ArtefactView | null>(null);
@@ -155,18 +220,18 @@ function TeamPage() {
 
   // Load diff stats whenever we enter a project-chat view
   useEffect(() => {
-    if (view.type !== 'project-chat') {
+    if (!currentProjectId) {
       setDiffStats(null);
       return;
     }
-    const project = projects.find((p) => p.id === view.projectId);
+    const project = projects.find((p) => p.id === currentProjectId);
     if (!project) return;
     getProjectDiffFn({
       data: { branch: project.branch },
     }).then((result) => {
       setDiffStats(result.stats);
     });
-  }, [view, projects, getProjectDiffFn]);
+  }, [currentProjectId, projects, getProjectDiffFn]);
 
   // Scroll to bottom when messages change
   // biome-ignore lint/correctness/useExhaustiveDependencies: messages/projectMessages trigger scroll
@@ -186,28 +251,27 @@ function TeamPage() {
   }, [input]);
 
   // Scroll to bottom after agent session loads
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionData triggers scroll
   useEffect(() => {
-    if (view.type !== 'agent-session') return;
+    if (!currentAgentName) return;
     if (sessionData) {
       setTimeout(
         () => bottomRef.current?.scrollIntoView({ behavior: 'instant' }),
         50,
       );
     }
-  }, [sessionData]);
+  }, [sessionData, currentAgentName]);
 
   // Scroll to bottom after project messages load
-  // biome-ignore lint/correctness/useExhaustiveDependencies: projectMessages triggers scroll
+  // biome-ignore lint/correctness/useExhaustiveDependencies: projectMessages triggers scroll on enter
   useEffect(() => {
-    if (view.type !== 'project-chat') return;
+    if (!currentProjectId) return;
     if (projectMessages.length > 0) {
       setTimeout(
         () => bottomRef.current?.scrollIntoView({ behavior: 'instant' }),
         50,
       );
     }
-  }, [view]);
+  }, [currentProjectId]);
 
   function insertMention(name: string, atStart: number) {
     const textarea = inputRef.current;
@@ -238,10 +302,10 @@ function TeamPage() {
   }
 
   async function openDiffViewer() {
-    const currentView = viewRef.current;
-    if (currentView.type !== 'project-chat') return;
+    const ctx = routeCtxRef.current;
+    if (!ctx.currentProjectName || ctx.currentAgentName) return;
     const project = projectsRef.current.find(
-      (p) => p.id === currentView.projectId,
+      (p) => p.name === ctx.currentProjectName,
     );
     if (!project) return;
     const result = await getProjectDiffFnRef.current({
@@ -256,7 +320,7 @@ function TeamPage() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       const currentMode = modeRef.current;
-      const currentView = viewRef.current;
+      const currentCtx = routeCtxRef.current;
       const currentOverlay = overlayRef.current;
       const currentFocused = focusedIdxRef.current;
       const blocks = navBlocksRef.current;
@@ -374,7 +438,7 @@ function TeamPage() {
           break;
 
         case 'd':
-          if (currentView.type === 'project-chat') {
+          if (currentCtx.currentProjectName && !currentCtx.currentAgentName) {
             openDiffViewer();
           }
           e.preventDefault();
@@ -509,10 +573,9 @@ function TeamPage() {
         const cur = overlay.cursor;
         if (cur < filtered.length) {
           const p = filtered[cur];
-          setView({
-            type: 'project-chat',
-            projectId: p.id,
-            projectName: p.name,
+          navigate({
+            to: '/teams/$teamId/projects/$projectName',
+            params: { teamId, projectName: p.name },
           });
           setFocusedIdx(-1);
           closePicker();
@@ -557,12 +620,22 @@ function TeamPage() {
       if (e.key === 'Enter' && !e.shiftKey) {
         const ag = filtered[overlay.cursor];
         if (ag) {
-          const projectCtx =
-            'projectId' in view
-              ? { projectId: view.projectId, projectName: view.projectName }
-              : {};
-          setView({ type: 'agent-session', agentName: ag.name, ...projectCtx });
-          setSessionData(null);
+          const ctx = routeCtxRef.current;
+          if (ctx.currentProjectName) {
+            navigate({
+              to: '/teams/$teamId/projects/$projectName/agents/$agentName',
+              params: {
+                teamId,
+                projectName: ctx.currentProjectName,
+                agentName: ag.name,
+              },
+            });
+          } else {
+            navigate({
+              to: '/teams/$teamId/agents/$agentName',
+              params: { teamId, agentName: ag.name },
+            });
+          }
           setFocusedIdx(-1);
           closePicker();
         }
@@ -627,7 +700,7 @@ function TeamPage() {
     }
   }
 
-  const inputDisabled = isSending || view.type === 'agent-session';
+  const inputDisabled = isSending || !!currentAgentName;
 
   const showInlinePicker =
     overlay !== null &&
@@ -643,255 +716,242 @@ function TeamPage() {
         ? 'filter...'
         : undefined;
 
-  return (
-    <div className="flex flex-col h-screen bg-background overflow-hidden font-mono">
-      {/* ── Content area ────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
-        {artefactView !== null ? (
-          artefactView.kind === 'files' ? (
-            <FilesView
-              teamId={teamId}
-              path={artefactView.path}
-              entries={artefactView.entries}
-              cursor={artefactView.cursor}
-              onSelectEntry={(entry, newPath) => {
-                if (entry.type === 'dir') {
-                  openFilesBrowser(newPath);
-                } else {
-                  getTeamFileContentFn({
-                    data: { teamId, relPath: newPath },
-                  }).then((content) => {
-                    setArtefactView({
-                      kind: 'file-content',
-                      relPath: newPath,
-                      content,
-                    });
-                  });
-                }
-              }}
-              onNavigateCursor={(cursor) =>
-                setArtefactView((av) =>
-                  av?.kind === 'files' ? { ...av, cursor } : av,
-                )
-              }
-            />
-          ) : artefactView.kind === 'file-content' ? (
-            <FileContentView
-              relPath={artefactView.relPath}
-              content={artefactView.content}
-            />
-          ) : (
-            <DiffView
-              diffText={artefactView.diffText}
-              stats={
-                diffStats ?? { filesChanged: 0, insertions: 0, deletions: 0 }
-              }
-            />
-          )
-        ) : (
-          <>
-            {view.type === 'chat' && (
-              <ChatView
-                navBlocks={navBlocks}
-                focusedIdx={focusedIdx}
-                onFocusBlock={setFocusedIdx}
-                bottomRef={bottomRef}
-              />
-            )}
-            {view.type === 'project-chat' && (
-              <ChatView
-                navBlocks={navBlocks}
-                focusedIdx={focusedIdx}
-                onFocusBlock={setFocusedIdx}
-                bottomRef={bottomRef}
-                emptyText={`No messages in ${view.projectName} yet.`}
-              />
-            )}
-            {view.type === 'agent-session' && (
-              <AgentSessionView
-                agentName={view.agentName}
-                navBlocks={navBlocks}
-                focusedIdx={focusedIdx}
-                onFocusBlock={setFocusedIdx}
-                bottomRef={bottomRef}
-              />
-            )}
-          </>
-        )}
-      </div>
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setFocusedIdx and bottomRef are stable refs
+  const contextValue: TeamPageContextType = useMemo(
+    () => ({ navBlocks, focusedIdx, setFocusedIdx, bottomRef }),
+    [navBlocks, focusedIdx],
+  );
 
-      {/* ── Working agent indicator ─────────────────────────────────────── */}
-      {workingAgents.length > 0 && (
-        <div className="px-4 pt-1.5 pb-0.5 flex flex-col gap-0.5">
-          {workingAgents.map((a) => (
-            <div
-              key={a.name}
-              className="text-xs flex gap-1.5 items-baseline truncate"
-            >
-              <span className="text-secondary shrink-0">{a.name}</span>
-              <span className="text-muted-foreground shrink-0">(c)</span>
-              {a.statusText && (
-                <span className="text-muted-foreground/60 italic truncate">
-                  {a.statusText}...
+  return (
+    <TeamPageContext.Provider value={contextValue}>
+      <div className="flex flex-col h-screen bg-background overflow-hidden font-mono">
+        {/* ── Content area ────────────────────────────────────────────────── */}
+        <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
+          {artefactView !== null ? (
+            artefactView.kind === 'files' ? (
+              <FilesView
+                teamId={teamId}
+                path={artefactView.path}
+                entries={artefactView.entries}
+                cursor={artefactView.cursor}
+                onSelectEntry={(entry, newPath) => {
+                  if (entry.type === 'dir') {
+                    openFilesBrowser(newPath);
+                  } else {
+                    getTeamFileContentFn({
+                      data: { teamId, relPath: newPath },
+                    }).then((content) => {
+                      setArtefactView({
+                        kind: 'file-content',
+                        relPath: newPath,
+                        content,
+                      });
+                    });
+                  }
+                }}
+                onNavigateCursor={(cursor) =>
+                  setArtefactView((av) =>
+                    av?.kind === 'files' ? { ...av, cursor } : av,
+                  )
+                }
+              />
+            ) : artefactView.kind === 'file-content' ? (
+              <FileContentView
+                relPath={artefactView.relPath}
+                content={artefactView.content}
+              />
+            ) : (
+              <DiffView
+                diffText={artefactView.diffText}
+                stats={
+                  diffStats ?? { filesChanged: 0, insertions: 0, deletions: 0 }
+                }
+              />
+            )
+          ) : (
+            <Outlet />
+          )}
+        </div>
+
+        {/* ── Working agent indicator ─────────────────────────────────────── */}
+        {workingAgents.length > 0 && (
+          <div className="px-4 pt-1.5 pb-0.5 flex flex-col gap-0.5">
+            {workingAgents.map((a) => (
+              <div
+                key={a.name}
+                className="text-xs flex gap-1.5 items-baseline truncate"
+              >
+                <span className="text-secondary shrink-0">{a.name}</span>
+                <span className="text-muted-foreground shrink-0">(c)</span>
+                {a.statusText && (
+                  <span className="text-muted-foreground/60 italic truncate">
+                    {a.statusText}...
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Input area ──────────────────────────────────────────────────── */}
+        <div className="shrink-0">
+          <Separator />
+          <div className="px-4 pt-1.5 pb-2">
+            <div className="text-xs mb-1 select-none">
+              {overlay?.kind === 'projects-create' ? (
+                <span>
+                  <span className="text-foreground/60">new project</span>
+                  <span className="text-muted-foreground/30 ml-2">
+                    esc to cancel
+                  </span>
                 </span>
+              ) : (
+                <Breadcrumb
+                  teamId={teamId}
+                  projectName={currentProjectName}
+                  agentName={currentAgentName}
+                />
               )}
             </div>
-          ))}
-        </div>
-      )}
 
-      {/* ── Input area ──────────────────────────────────────────────────── */}
-      <div className="shrink-0">
-        <Separator />
-        <div className="px-4 pt-1.5 pb-2">
-          <div className="text-xs mb-1 select-none">
-            {overlay?.kind === 'projects-create' ? (
-              <span>
-                <span className="text-foreground/60">new project</span>
-                <span className="text-muted-foreground/30 ml-2">
-                  esc to cancel
-                </span>
-              </span>
-            ) : (
-              <Breadcrumb view={view} teamId={teamId} />
+            {/* Inline picker list — sits between breadcrumb and prompt */}
+            {showInlinePicker && overlay && (
+              <InlinePicker
+                overlay={overlay}
+                pickerItems={pickerItems}
+                mentionItems={mentionFilteredAgents}
+                onSelectTeam={(team) => {
+                  closePicker();
+                  navigateToTeam(team.name);
+                }}
+                onSelectProject={(p) => {
+                  navigate({
+                    to: '/teams/$teamId/projects/$projectName',
+                    params: { teamId, projectName: p.name },
+                  });
+                  setFocusedIdx(-1);
+                  closePicker();
+                }}
+                onSelectAgent={(ag) => {
+                  const ctx = routeCtxRef.current;
+                  if (ctx.currentProjectName) {
+                    navigate({
+                      to: '/teams/$teamId/projects/$projectName/agents/$agentName',
+                      params: {
+                        teamId,
+                        projectName: ctx.currentProjectName,
+                        agentName: ag.name,
+                      },
+                    });
+                  } else {
+                    navigate({
+                      to: '/teams/$teamId/agents/$agentName',
+                      params: { teamId, agentName: ag.name },
+                    });
+                  }
+                  setFocusedIdx(-1);
+                  closePicker();
+                }}
+                onSelectMention={(agent) => {
+                  if (overlay?.kind === 'mention')
+                    insertMention(agent.name, overlay.atStart);
+                  setOverlay(null);
+                  inputRef.current?.focus();
+                }}
+                onCreateProject={() => {
+                  setOverlay({ kind: 'projects-create' });
+                  setInput('');
+                }}
+              />
             )}
-          </div>
 
-          {/* Inline picker list — sits between breadcrumb and prompt */}
-          {showInlinePicker && overlay && (
-            <InlinePicker
-              overlay={overlay}
-              pickerItems={pickerItems}
-              mentionItems={mentionFilteredAgents}
-              onSelectTeam={(team) => {
-                closePicker();
-                navigateToTeam(team.name);
-              }}
-              onSelectProject={(p) => {
-                setView({
-                  type: 'project-chat',
-                  projectId: p.id,
-                  projectName: p.name,
-                });
-                setFocusedIdx(-1);
-                closePicker();
-              }}
-              onSelectAgent={(ag) => {
-                const projectCtx =
-                  'projectId' in view
-                    ? {
-                        projectId: view.projectId,
-                        projectName: view.projectName,
-                      }
-                    : {};
-                setView({
-                  type: 'agent-session',
-                  agentName: ag.name,
-                  ...projectCtx,
-                });
-                setSessionData(null);
-                setFocusedIdx(-1);
-                closePicker();
-              }}
-              onSelectMention={(agent) => {
-                if (overlay?.kind === 'mention')
-                  insertMention(agent.name, overlay.atStart);
-                setOverlay(null);
-                inputRef.current?.focus();
-              }}
-              onCreateProject={() => {
-                setOverlay({ kind: 'projects-create' });
-                setInput('');
-              }}
-            />
-          )}
-
-          <div className="flex items-start gap-1.5">
-            <span className="text-muted-foreground/30 text-sm shrink-0 mt-px select-none leading-relaxed">
-              ❯❯⎽
-            </span>
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={handleInputChange}
-              onFocus={() => setMode('insert')}
-              onBlur={() => setMode('normal')}
-              onKeyDown={handleInputKeyDown}
-              disabled={inputDisabled}
-              placeholder={inputDisabled ? '' : inputPlaceholder}
-              rows={1}
-              className={cn(
-                'flex-1 bg-transparent border-none resize-none outline-none text-sm leading-relaxed',
-                'text-foreground placeholder:text-muted-foreground/40 overflow-hidden',
-                inputDisabled && 'opacity-40 cursor-default',
-              )}
-            />
+            <div className="flex items-start gap-1.5">
+              <span className="text-muted-foreground/30 text-sm shrink-0 mt-px select-none leading-relaxed">
+                ❯❯⎽
+              </span>
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={handleInputChange}
+                onFocus={() => setMode('insert')}
+                onBlur={() => setMode('normal')}
+                onKeyDown={handleInputKeyDown}
+                disabled={inputDisabled}
+                placeholder={inputDisabled ? '' : inputPlaceholder}
+                rows={1}
+                className={cn(
+                  'flex-1 bg-transparent border-none resize-none outline-none text-sm leading-relaxed',
+                  'text-foreground placeholder:text-muted-foreground/40 overflow-hidden',
+                  inputDisabled && 'opacity-40 cursor-default',
+                )}
+              />
+            </div>
           </div>
         </div>
-      </div>
 
-      <Separator />
+        <Separator />
 
-      {/* ── Status bar ─────────────────────────────────────────────────── */}
-      <div className="px-4 py-1 shrink-0 flex items-center gap-1 text-xs">
-        <button
-          type="button"
-          onClick={() => {
-            openTeamsPicker();
-            inputRef.current?.focus();
-          }}
-          className="text-muted-foreground/50 hover:text-primary hover:underline"
-        >
-          teams
-        </button>
-        <span className="text-muted-foreground/30 ml-0.5">(t)</span>
-        <button
-          type="button"
-          onClick={() => {
-            openProjectsPicker();
-            inputRef.current?.focus();
-          }}
-          className="text-primary hover:underline ml-3"
-        >
-          {projects.length} projects
-        </button>
-        <span className="text-muted-foreground ml-0.5">(p)</span>
-        <button
-          type="button"
-          onClick={() => {
-            openAgentsPicker();
-            inputRef.current?.focus();
-          }}
-          className="text-primary hover:underline ml-3"
-        >
-          {agents.length} agents
-        </button>
-        <span className="text-muted-foreground ml-0.5">(a)</span>
-        <button
-          type="button"
-          onClick={() => openFilesBrowser([])}
-          className="text-muted-foreground/50 hover:text-primary hover:underline ml-3"
-        >
-          files
-        </button>
-        <span className="text-muted-foreground/30 ml-0.5">(f)</span>
-        {view.type === 'project-chat' && diffStats !== null && (
-          <>
-            <button
-              type="button"
-              onClick={() => openDiffViewer()}
-              className="text-muted-foreground/50 hover:text-primary hover:underline ml-3"
-            >
-              {diffStats.filesChanged} files changed +{diffStats.insertions} -
-              {diffStats.deletions}
-            </button>
-            <span className="text-muted-foreground/30 ml-0.5">(d)</span>
-          </>
-        )}
-        {mode === 'normal' && (
-          <span className="ml-auto text-muted-foreground/50">NORMAL</span>
-        )}
+        {/* ── Status bar ─────────────────────────────────────────────────── */}
+        <div className="px-4 py-1 shrink-0 flex items-center gap-1 text-xs">
+          <button
+            type="button"
+            onClick={() => {
+              openTeamsPicker();
+              inputRef.current?.focus();
+            }}
+            className="text-muted-foreground/50 hover:text-primary hover:underline"
+          >
+            teams
+          </button>
+          <span className="text-muted-foreground/30 ml-0.5">(t)</span>
+          <button
+            type="button"
+            onClick={() => {
+              openProjectsPicker();
+              inputRef.current?.focus();
+            }}
+            className="text-primary hover:underline ml-3"
+          >
+            {projects.length} projects
+          </button>
+          <span className="text-muted-foreground ml-0.5">(p)</span>
+          <button
+            type="button"
+            onClick={() => {
+              openAgentsPicker();
+              inputRef.current?.focus();
+            }}
+            className="text-primary hover:underline ml-3"
+          >
+            {agents.length} agents
+          </button>
+          <span className="text-muted-foreground ml-0.5">(a)</span>
+          <button
+            type="button"
+            onClick={() => openFilesBrowser([])}
+            className="text-muted-foreground/50 hover:text-primary hover:underline ml-3"
+          >
+            files
+          </button>
+          <span className="text-muted-foreground/30 ml-0.5">(f)</span>
+          {currentProjectId && !currentAgentName && diffStats !== null && (
+            <>
+              <button
+                type="button"
+                onClick={() => openDiffViewer()}
+                className="text-muted-foreground/50 hover:text-primary hover:underline ml-3"
+              >
+                {diffStats.filesChanged} files changed +{diffStats.insertions} -
+                {diffStats.deletions}
+              </button>
+              <span className="text-muted-foreground/30 ml-0.5">(d)</span>
+            </>
+          )}
+          {mode === 'normal' && (
+            <span className="ml-auto text-muted-foreground/50">NORMAL</span>
+          )}
+        </div>
       </div>
-    </div>
+    </TeamPageContext.Provider>
   );
 }

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { Breadcrumb, type ViewState, applySessionsToAgents } from './$teamId';
+import { Breadcrumb, applySessionsToAgents } from './$teamId';
 
 afterEach(cleanup);
 
@@ -140,30 +140,20 @@ describe('mention regex', () => {
 // ── Breadcrumb ─────────────────────────────────────────────────────────────
 
 describe('Breadcrumb', () => {
-  it('renders ~/teamId for chat view', () => {
-    render(<Breadcrumb view={{ type: 'chat' }} teamId="myteam" />);
+  it('renders ~/teamId for team chat (no project or agent)', () => {
+    render(<Breadcrumb teamId="myteam" />);
     screen.getByText('~/myteam');
   });
 
-  it('renders ~/teamId and (projectName) as separate spans for project-chat', () => {
-    const view: ViewState = {
-      type: 'project-chat',
-      projectId: 'p1',
-      projectName: 'my-project',
-    };
-    render(<Breadcrumb view={view} teamId="myteam" />);
+  it('renders ~/teamId and (projectName) as separate spans for project view', () => {
+    render(<Breadcrumb teamId="myteam" projectName="my-project" />);
 
     screen.getByText('~/myteam');
     screen.getByText('(my-project)');
   });
 
-  it('project-chat: path segment is primary, project label is secondary', () => {
-    const view: ViewState = {
-      type: 'project-chat',
-      projectId: 'p1',
-      projectName: 'my-project',
-    };
-    render(<Breadcrumb view={view} teamId="myteam" />);
+  it('project view: path segment is primary, project label is secondary', () => {
+    render(<Breadcrumb teamId="myteam" projectName="my-project" />);
 
     const path = screen.getByText('~/myteam');
     const label = screen.getByText('(my-project)');
@@ -172,20 +162,27 @@ describe('Breadcrumb', () => {
     expect(label.className).toContain('text-secondary');
   });
 
-  it('renders ~/teamId/agentName for agent-session', () => {
-    const view: ViewState = { type: 'agent-session', agentName: 'aria' };
-    render(<Breadcrumb view={view} teamId="myteam" />);
+  it('renders ~/teamId/agentName for agent session', () => {
+    render(<Breadcrumb teamId="myteam" agentName="aria" />);
 
     screen.getByText(/myteam\/aria/);
   });
 
-  it('agent-session: entire path is primary', () => {
-    const view: ViewState = { type: 'agent-session', agentName: 'aria' };
-    render(<Breadcrumb view={view} teamId="myteam" />);
+  it('agent session: entire path is primary', () => {
+    render(<Breadcrumb teamId="myteam" agentName="aria" />);
 
     const el = screen.getByText(/myteam\/aria/);
     expect(el.className).toContain('text-primary');
     expect(el.className).not.toContain('text-secondary');
+  });
+
+  it('agent in project: shows agent path and project label', () => {
+    render(
+      <Breadcrumb teamId="myteam" projectName="my-project" agentName="aria" />,
+    );
+
+    screen.getByText(/myteam\/aria/);
+    screen.getByText('(my-project)');
   });
 });
 
