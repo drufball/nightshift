@@ -4,3 +4,4 @@ dist
 .cache
 .playwright-cli
 .claude/worktrees
+.env
