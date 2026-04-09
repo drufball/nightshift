@@ -97,12 +97,20 @@ export async function runConversationJudge(
     .replace(/\s*```$/, '')
     .trim();
 
-  const parsed = JSON.parse(text); // throws on invalid JSON — caller handles it
-  if (!Array.isArray(parsed.next_responders)) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new Error(
+      `Judge returned invalid JSON: ${err}\nRaw response: ${raw}`,
+    );
+  }
+  const result = parsed as Record<string, unknown>;
+  if (!Array.isArray(result.next_responders)) {
     throw new Error(`Judge returned unexpected shape: ${text}`);
   }
   // Only allow valid agent names
-  return (parsed.next_responders as string[]).filter((r) =>
+  return (result.next_responders as string[]).filter((r) =>
     allAgentNames.includes(r),
   );
 }
@@ -218,6 +226,11 @@ export async function runConversationLoop({
     // Determine who should respond to the last message
     const mentions = parseMentions(lastMessage.content, allAgentNames);
 
+    // Track whether this turn was driven by an explicit @mention in a user message.
+    // After those agents respond we stop — the judge should not add unsolicited agents.
+    const userMentionTrigger =
+      mentions.length > 0 && lastMessage.sender === 'user';
+
     let nextResponders: string[];
     if (mentions.length > 0) {
       // @mentions are authoritative — run exactly those agents, skip the judge
@@ -309,6 +322,10 @@ export async function runConversationLoop({
       // Stop immediately if the agent is handing back to the user
       if (mentionsUser(responseText)) return;
     }
+
+    // When this turn was driven by an explicit @mention in a user message, stop here.
+    // The mentioned agents have responded; don't let the judge queue additional agents.
+    if (userMentionTrigger) break;
   }
 }
 
