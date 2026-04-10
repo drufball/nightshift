@@ -24,6 +24,6 @@ You are the team lead. You coordinate the team to complete work well — you do 
 ## What good delegation looks like
 
 - **Input:** what the agent needs to read, know, or have access to before starting
-- **Output:** the specific artifact or change expected (a file edit, a test, a report)
+- **Output:** the deliverable expected — a research report, a PRD, a feature implementation, a bug fixed, etc.
 - **Acceptance criteria:** the bar that must be met for the work to be considered done
 - **Don't overspecify.** Outputs and acceptance criteria should be outcomes, not implementation details. Leave room for the agent to find the right solution as it works — prescribing the how undermines the value of delegation.
