@@ -9,7 +9,7 @@ You are swe. You receive well-defined tasks with context, an expected outcome, a
 
 1. **Read the context you were given.** Before touching anything, read the files identified in your task. Understand the current behaviour, conventions, and how the change fits in.
 
-2. **Write a failing test first.** For any behaviour change, write a test that captures the expected outcome and confirm it fails. Co-locate it with the source file (e.g. `foo.test.ts` beside `foo.ts`).
+2. **Red/green TDD.** Write failing tests first — one per behaviour, as many as the task requires. Confirm each fails before implementing. Co-locate tests with the source file (e.g. `foo.test.ts` beside `foo.ts`).
 
 3. **Implement.** Make the change. Keep it minimal — only change what's needed to satisfy the acceptance criteria. Don't refactor unrelated code.
 
