@@ -61,6 +61,7 @@ type RunAgentFn = (opts: {
   teamFolder?: string;
   projectBranch?: string;
   cwd: string;
+  worktreeDir?: string;
   existingSdkSessionId?: string;
   onStatus?: (status: 'idle' | 'working', statusText?: string) => void;
   onSessionId?: (sessionId: string) => void;
@@ -85,6 +86,7 @@ export async function runConversationLoop({
   teamId,
   team,
   cwd,
+  worktreeDir,
   teamMemberMeta,
   projectBranch,
   projectId,
@@ -93,7 +95,13 @@ export async function runConversationLoop({
   db: import('~/db/index').Database;
   teamId: string;
   team: TeamMeta;
+  /** Git root — used for reading nightshift config and as fallback agent cwd. */
   cwd: string;
+  /**
+   * Worktree directory for the project. When set, agents run here so they can
+   * edit files on the project branch. Nightshift config is still read from `cwd`.
+   */
+  worktreeDir?: string;
   teamMemberMeta: Array<{ name: string; description: string; isLead: boolean }>;
   projectBranch?: string;
   /** When set, sessions and messages are scoped to this project rather than the team. */
@@ -144,7 +152,8 @@ export async function runConversationLoop({
   const runAgentImpl = runAgentFn ?? defaultRunAgent;
 
   const allAgentNames = teamMemberMeta.map((m) => m.name);
-  const teamFolder = join('.nightshift', 'teams', team.name);
+  // Absolute path so agents can locate team files regardless of their working directory.
+  const teamFolder = join(cwd, '.nightshift', 'teams', team.name);
 
   while (true) {
     const recentMessages = getRecentMessages();
@@ -191,6 +200,7 @@ export async function runConversationLoop({
           teamFolder,
           projectBranch,
           cwd,
+          worktreeDir,
         });
         // Race against a timeout so a hung SDK stream can't lock the conversation
         const timeoutPromise = new Promise<never>((_, reject) =>
@@ -366,13 +376,14 @@ export const sendProjectMessage = createServerFn({ method: 'POST' })
       (p) => p.id === data.projectId,
     );
 
-    const projectCwd = await resolveProjectCwd(cwd, project?.branch);
+    const worktreeDir = await resolveProjectCwd(cwd, project?.branch);
 
     await runConversationLoop({
       db,
       teamId: data.teamId,
       team: team ?? { name: data.teamId, lead: leadName, members: [] },
-      cwd: projectCwd,
+      cwd,
+      worktreeDir: worktreeDir !== cwd ? worktreeDir : undefined,
       teamMemberMeta,
       projectBranch: project?.branch,
       projectId: data.projectId,

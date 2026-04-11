@@ -324,6 +324,58 @@ describe('runConversationLoop', () => {
 
     expect(capturedOpts?.projectBranch).toBe('feature-xyz');
   });
+
+  it('passes worktreeDir to the agent when provided', async () => {
+    const projectId = 'proj-worktree';
+    // biome-ignore lint/suspicious/noExplicitAny: test capture
+    let capturedOpts: Record<string, any> | undefined;
+    // biome-ignore lint/suspicious/noExplicitAny: test capture
+    const runAgentFn = mock(async (opts: Record<string, any>) => {
+      capturedOpts = opts;
+      return '@user done';
+    });
+    insertMessage(db, 'test-team', 'user', 'hey @alice work here', projectId);
+
+    await runConversationLoop({
+      db,
+      teamId: 'test-team',
+      team,
+      cwd: '/repo-root',
+      teamMemberMeta,
+      projectId,
+      worktreeDir: '/repo-root/.nightshift/worktrees/my-feature',
+      runAgentFn,
+    });
+
+    expect(capturedOpts?.cwd).toBe('/repo-root');
+    expect(capturedOpts?.worktreeDir).toBe(
+      '/repo-root/.nightshift/worktrees/my-feature',
+    );
+  });
+
+  it('teamFolder is an absolute path based on cwd', async () => {
+    // biome-ignore lint/suspicious/noExplicitAny: test capture
+    let capturedOpts: Record<string, any> | undefined;
+    // biome-ignore lint/suspicious/noExplicitAny: test capture
+    const runAgentFn = mock(async (opts: Record<string, any>) => {
+      capturedOpts = opts;
+      return '@user done';
+    });
+    insertMessage(db, 'test-team', 'user', 'any thoughts?');
+
+    await runConversationLoop({
+      db,
+      teamId: 'test-team',
+      team,
+      cwd: '/repo-root',
+      teamMemberMeta,
+      runAgentFn,
+    });
+
+    expect(capturedOpts?.teamFolder).toBe(
+      '/repo-root/.nightshift/teams/test-team',
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
