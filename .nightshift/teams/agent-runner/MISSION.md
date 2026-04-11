@@ -6,8 +6,8 @@ The agent-runner team owns the harness that brings nightshift agents to life —
 
 **Code areas**
 - `src/server/agent-runner.ts` — core agent execution via Claude Agent SDK (`runAgent`, tool allowlist, streaming callbacks, session resumption)
-- `src/server/team-data.ts` — multi-agent conversation orchestration (`runConversationLoop`, `runConversationJudge`, @mention routing, turn limits, timeouts)
-- `src/server/conversation-timing.spec.md` — judge behaviour specification
+- `src/server/team-data.ts` — multi-agent conversation orchestration (`runConversationLoop`, deterministic @mention routing, turn limits, timeouts)
+- `src/server/conversation-timing.spec.md` — conversation routing rules specification
 - `src/db/sessions.ts` — agent session state machine (idle/working, `sdk_session_id`, stuck-session reset)
 - `src/db/messages.ts` — message persistence (`insertMessage`, `getTeamMessages`, `getProjectMessages`)
 - `src/db/schema.ts` + `src/db/index.ts` — SQLite schema and WAL-mode connection
@@ -29,7 +29,7 @@ The agent-runner team owns the harness that brings nightshift agents to life —
 
 - **Debug a stuck or hung agent** — inspect `sessions` table, check `resetStuckSessions`, trace the 5-minute timeout in `runConversationLoop`
 - **Add a new tool to the runner allowlist** — edit tool list in `agent-runner.ts`, write a test, update docs
-- **Tune conversation routing** — modify `runConversationJudge` prompt or fall-through logic in `team-data.ts`; update `conversation-timing.spec.md` to match
+- **Tune conversation routing** — modify the routing logic in `runConversationLoop` (`team-data.ts`); update `conversation-timing.spec.md` to match
 - **Update a core harness system prompt** — edit the relevant `.spec.md` first, then update inflation code in `buildSystemPrompt`
 - **Add or alter a DB column** — update `schema.ts`, write a migration, update affected query helpers
 - **Add a CLI subcommand** — scaffold in `src/cli/commands/`, wire into `src/cli/index.ts`, co-locate tests
