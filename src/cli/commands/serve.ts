@@ -65,15 +65,6 @@ export function registerServe(program: Command): void {
       const projectDir = process.cwd();
       const fileEnv = loadProjectEnv(projectDir);
 
-      if (!process.env.ANTHROPIC_API_KEY && !fileEnv.ANTHROPIC_API_KEY) {
-        console.warn(
-          '[nightshift] Warning: ANTHROPIC_API_KEY is not set.\n' +
-            '  The conversation judge uses the Anthropic API directly and will fall back\n' +
-            '  to the team lead on every turn until the key is configured.\n' +
-            '  Set it in .nightshift/.env, .env, or your shell profile (~/.zshrc / ~/.bashrc).',
-        );
-      }
-
       // Merge order: process.env (lowest) → .env → .nightshift/.env (highest)
       const env = {
         ...process.env,

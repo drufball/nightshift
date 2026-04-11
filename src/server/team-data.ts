@@ -13,7 +13,6 @@ export type AgentSessionMessage = {
   parent_tool_use_id: null;
 };
 
-const MAX_AGENT_TURNS = 6;
 const AGENT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 /** Extract @name mentions from message content, matched against known names. */
@@ -53,68 +52,6 @@ async function readTeamMemberMeta(
   );
 }
 
-/**
- * LLM judge: given recent conversation, decides which agents (if any) should
- * respond next. Returns an empty array to signal "wait for user".
- *
- * The system prompt is passed in — read it once at the call site so this
- * function stays pure and independently testable.
- */
-export async function runConversationJudge(
-  messages: Message[],
-  team: TeamMeta,
-  allAgentNames: string[],
-  systemPrompt: string,
-): Promise<string[]> {
-  const roster = allAgentNames
-    .map((name) => `- ${name}${name === team.lead ? ' (lead)' : ''}`)
-    .join('\n');
-
-  const history = messages
-    .slice(-15)
-    .map((m) => `${m.sender === 'user' ? 'User' : m.sender}: ${m.content}`)
-    .join('\n');
-
-  const userPrompt = `## Team Roster\n${roster}\n\n## Conversation\n${history}`;
-
-  const { default: Anthropic } = await import('@anthropic-ai/sdk');
-  const client = new Anthropic();
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 200,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: userPrompt }],
-  });
-
-  const raw =
-    response.content[0].type === 'text'
-      ? response.content[0].text.trim()
-      : '{}';
-
-  // Strip markdown code fences if the model wrapped the JSON (e.g. ```json ... ```)
-  const text = raw
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/, '')
-    .trim();
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch (err) {
-    throw new Error(
-      `Judge returned invalid JSON: ${err}\nRaw response: ${raw}`,
-    );
-  }
-  const result = parsed as Record<string, unknown>;
-  if (!Array.isArray(result.next_responders)) {
-    throw new Error(`Judge returned unexpected shape: ${text}`);
-  }
-  // Only allow valid agent names
-  return (result.next_responders as string[]).filter((r) =>
-    allAgentNames.includes(r),
-  );
-}
-
 type RunAgentFn = (opts: {
   agentName: string;
   userMessage: string;
@@ -133,12 +70,15 @@ type RunAgentFn = (opts: {
  * Runs the multi-agent conversation loop until the conversation reaches a
  * natural pause point or MAX_AGENT_TURNS is hit.
  *
- * Each iteration looks at the last message in the DB:
- *   - If it contains @mentions → those agents respond (judge is skipped)
- *   - If no @mentions → the judge decides who (if anyone) responds next
+ * Routing is fully deterministic — no LLM judge. Each iteration inspects
+ * the last message:
+ *   - @user mention → stop; hand back to human
+ *   - User message, no @mentions → team lead responds
+ *   - Any message with @agent mentions → those agents respond
+ *   - Team lead message, no @mentions → stop; assumed to be for user
+ *   - Non-lead agent message, no @mentions → team lead responds
  *
- * The loop stops when @user is mentioned, the judge returns [], or we hit
- * the turn limit.
+ * The 5-minute per-agent timeout is the only guard against runaway turns.
  */
 export async function runConversationLoop({
   db,
@@ -203,77 +143,40 @@ export async function runConversationLoop({
 
   const runAgentImpl = runAgentFn ?? defaultRunAgent;
 
-  // Read the judge system prompt once before entering the loop — avoid a
-  // disk read on every iteration and keep runConversationJudge pure.
-  const { readFile } = await import('node:fs/promises');
-  const specPath = new URL('./conversation-timing.spec.md', import.meta.url)
-    .pathname;
-  const judgeSystemPrompt = await readFile(specPath, 'utf-8');
-
   const allAgentNames = teamMemberMeta.map((m) => m.name);
-  const respondedAgents = new Set<string>();
   const teamFolder = join('.nightshift', 'teams', team.name);
-  let totalTurns = 0;
 
-  while (totalTurns < MAX_AGENT_TURNS) {
+  while (true) {
     const recentMessages = getRecentMessages();
     const lastMessage = recentMessages[recentMessages.length - 1];
     if (!lastMessage) break;
 
-    // A @user mention means the conversation is explicitly handing back to the user
+    // @user mention → conversation explicitly handed back to human
     if (mentionsUser(lastMessage.content)) break;
 
-    // Determine who should respond to the last message
     const mentions = parseMentions(lastMessage.content, allAgentNames);
 
-    // Track whether this turn was driven by an explicit @mention in a user message.
-    // After those agents respond we stop — the judge should not add unsolicited agents.
-    const userMentionTrigger =
-      mentions.length > 0 && lastMessage.sender === 'user';
-
     let nextResponders: string[];
-    if (mentions.length > 0) {
-      // @mentions are authoritative — run exactly those agents, skip the judge
-      nextResponders = mentions.filter((n) => !respondedAgents.has(n));
-    } else {
-      // No @mentions — ask the judge
-      let judgeResult: string[] = [];
-      try {
-        judgeResult = await runConversationJudge(
-          recentMessages,
-          team,
-          allAgentNames,
-          judgeSystemPrompt,
-        );
-      } catch (err) {
-        // Judge failed (API error, bad JSON, etc.) — fall back to the lead,
-        // unless the lead just spoke (which would create a loop).
-        console.error(
-          '[nightshift] conversation judge failed, falling back to lead:',
-          err,
-        );
-        const lead = team.lead;
-        if (
-          lastMessage.sender !== lead &&
-          !respondedAgents.has(lead) &&
-          allAgentNames.includes(lead)
-        ) {
-          judgeResult = [lead];
-        }
-      }
 
-      nextResponders = judgeResult.filter((n) => !respondedAgents.has(n));
+    if (mentions.length > 0) {
+      // Explicit @mentions are authoritative — always route to the named agents
+      nextResponders = mentions;
+    } else if (lastMessage.sender === 'user') {
+      // User message with no @mentions → team lead handles it
+      nextResponders = allAgentNames.includes(team.lead) ? [team.lead] : [];
+    } else if (lastMessage.sender === team.lead) {
+      // Team lead sent a message without any @mentions →
+      // assumed to be directed at the user; pause and wait
+      break;
+    } else {
+      // Non-lead agent sent a message with no @mentions → team lead fields it
+      nextResponders = allAgentNames.includes(team.lead) ? [team.lead] : [];
     }
 
     if (nextResponders.length === 0) break;
 
     // Run each queued agent in sequence, inserting messages into the DB as they finish
     for (const agentName of nextResponders) {
-      if (totalTurns >= MAX_AGENT_TURNS) break;
-
-      totalTurns++;
-      respondedAgents.add(agentName);
-
       const chatContext = getRecentMessages();
       const triggerContent = chatContext[chatContext.length - 1]?.content ?? '';
 
@@ -306,7 +209,10 @@ export async function runConversationLoop({
         console.error(`[nightshift] agent ${agentName} failed:`, err);
         // Force the session idle in case runAgent's finally block never ran
         upsertSession(db, teamId, agentName, 'idle', undefined, projectId);
-        break;
+        // Return rather than break — the failed agent never inserted a message,
+        // so the last DB message is unchanged. Continuing the outer loop would
+        // re-route to the same agent and loop forever.
+        return;
       }
 
       const mentionedAgents = parseMentions(responseText, allAgentNames);
@@ -322,10 +228,6 @@ export async function runConversationLoop({
       // Stop immediately if the agent is handing back to the user
       if (mentionsUser(responseText)) return;
     }
-
-    // When this turn was driven by an explicit @mention in a user message, stop here.
-    // The mentioned agents have responded; don't let the judge queue additional agents.
-    if (userMentionTrigger) break;
   }
 }
 
