@@ -283,7 +283,8 @@ const TEAM_TEMPLATE = [
   'Mention `@user` when you need input from the human user before continuing.',
 ].join('\n');
 
-// A minimal project template — adds the project branch line.
+// A minimal project template — adds the project branch line (twice, like the
+// real template, to verify all occurrences are substituted).
 const PROJECT_TEMPLATE = [
   '${agentPrompt}',
   '',
@@ -297,7 +298,7 @@ const PROJECT_TEMPLATE = [
   '',
   '${memberLines}',
   '',
-  'Mention `@user` when you need input from the human user before continuing.',
+  'Commit your work to `${projectBranch}` before handing off.',
 ].join('\n');
 
 describe('buildSystemPrompt', () => {
@@ -341,7 +342,7 @@ describe('buildSystemPrompt', () => {
     expect(result).not.toContain('**bob** (lead)');
   });
 
-  it('substitutes projectBranch into the template', () => {
+  it('substitutes all occurrences of projectBranch into the template', () => {
     const result = buildSystemPrompt(
       PROJECT_TEMPLATE,
       'Prompt.',
@@ -350,7 +351,9 @@ describe('buildSystemPrompt', () => {
       teamMembers,
       'feature/my-branch',
     );
-    expect(result).toContain('`feature/my-branch`');
+    expect(result).not.toContain('${projectBranch}');
+    const matches = result.match(/feature\/my-branch/g);
+    expect(matches).toHaveLength(2);
   });
 
   it('instructs use of @user to hand back to human', () => {

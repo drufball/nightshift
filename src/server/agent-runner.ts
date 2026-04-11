@@ -82,11 +82,11 @@ export function buildSystemPrompt(
     .join('\n');
 
   return templateContent
-    .replace('${agentPrompt}', agentPrompt)
-    .replace('${teamName}', teamName)
-    .replace('${teamFolder}', teamFolder)
-    .replace('${projectBranch}', projectBranch ?? '')
-    .replace('${memberLines}', memberLines)
+    .replaceAll('${agentPrompt}', agentPrompt)
+    .replaceAll('${teamName}', teamName)
+    .replaceAll('${teamFolder}', teamFolder)
+    .replaceAll('${projectBranch}', projectBranch ?? '')
+    .replaceAll('${memberLines}', memberLines)
     .trim();
 }
 
