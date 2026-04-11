@@ -32,12 +32,6 @@ const mockReadFile = mock(async (path: string, _enc: string) => {
       '${memberLines}',
       '',
       'Mention `@user` when you need input from the human user before continuing.',
-      '',
-      '---',
-      '',
-      '## Recent Team Chat',
-      '',
-      '${chatSection}',
     ].join('\n');
   }
   return `---
@@ -287,17 +281,9 @@ const TEAM_TEMPLATE = [
   '${memberLines}',
   '',
   'Mention `@user` when you need input from the human user before continuing.',
-  '',
-  '---',
-  '',
-  '## Recent Team Chat',
-  '',
-  'The following messages were recently posted in the team chat:',
-  '',
-  '${chatSection}',
 ].join('\n');
 
-// A minimal project template — adds the project branch line and "Project Chat" label.
+// A minimal project template — adds the project branch line.
 const PROJECT_TEMPLATE = [
   '${agentPrompt}',
   '',
@@ -312,14 +298,6 @@ const PROJECT_TEMPLATE = [
   '${memberLines}',
   '',
   'Mention `@user` when you need input from the human user before continuing.',
-  '',
-  '---',
-  '',
-  '## Recent Project Chat',
-  '',
-  'The following messages were recently posted in the project chat:',
-  '',
-  '${chatSection}',
 ].join('\n');
 
 describe('buildSystemPrompt', () => {
@@ -335,7 +313,6 @@ describe('buildSystemPrompt', () => {
       'my-team',
       '.nightshift/teams/my-team',
       teamMembers,
-      [],
     );
     expect(result).toContain('You are alice.');
   });
@@ -347,7 +324,6 @@ describe('buildSystemPrompt', () => {
       'my-team',
       '.nightshift/teams/my-team',
       teamMembers,
-      [],
     );
     expect(result).toContain('**my-team**');
     expect(result).toContain('`.nightshift/teams/my-team`');
@@ -360,7 +336,6 @@ describe('buildSystemPrompt', () => {
       'my-team',
       '.nightshift/teams/my-team',
       teamMembers,
-      [],
     );
     expect(result).toContain('**alice** (lead)');
     expect(result).not.toContain('**bob** (lead)');
@@ -373,43 +348,9 @@ describe('buildSystemPrompt', () => {
       'my-team',
       '.nightshift/teams/my-team',
       teamMembers,
-      [],
       'feature/my-branch',
     );
     expect(result).toContain('`feature/my-branch`');
-  });
-
-  it('chatSection is empty when chatContext is empty', () => {
-    const result = buildSystemPrompt(
-      TEAM_TEMPLATE,
-      'Prompt.',
-      'my-team',
-      '.nightshift/teams/my-team',
-      teamMembers,
-      [],
-    );
-    // The heading comes from the template and is always present
-    expect(result).toContain('Recent Team Chat');
-    // But no message lines appear
-    expect(result).not.toContain('User:');
-  });
-
-  it('includes chat history lines when chatContext is provided', () => {
-    const messages = [
-      makeMsg('user', 'Hello team'),
-      makeMsg('alice', 'Hi there'),
-    ];
-    const result = buildSystemPrompt(
-      TEAM_TEMPLATE,
-      'Prompt.',
-      'my-team',
-      '.nightshift/teams/my-team',
-      teamMembers,
-      messages,
-    );
-    expect(result).toContain('Recent Team Chat');
-    expect(result).toContain('User: Hello team');
-    expect(result).toContain('alice: Hi there');
   });
 
   it('instructs use of @user to hand back to human', () => {
@@ -419,38 +360,8 @@ describe('buildSystemPrompt', () => {
       'my-team',
       '.nightshift/teams/my-team',
       teamMembers,
-      [],
     );
     expect(result).toContain('@user');
-  });
-
-  it('labels chat context as "Recent Project Chat" when projectBranch is provided', () => {
-    const messages = [makeMsg('user', 'Hello project')];
-    const result = buildSystemPrompt(
-      PROJECT_TEMPLATE,
-      'Prompt.',
-      'my-team',
-      '.nightshift/teams/my-team',
-      teamMembers,
-      messages,
-      'feature/my-branch',
-    );
-    expect(result).toContain('Recent Project Chat');
-    expect(result).not.toContain('Recent Team Chat');
-  });
-
-  it('labels chat context as "Recent Team Chat" when no projectBranch', () => {
-    const messages = [makeMsg('user', 'Hello team')];
-    const result = buildSystemPrompt(
-      TEAM_TEMPLATE,
-      'Prompt.',
-      'my-team',
-      '.nightshift/teams/my-team',
-      teamMembers,
-      messages,
-    );
-    expect(result).toContain('Recent Team Chat');
-    expect(result).not.toContain('Recent Project Chat');
   });
 });
 
@@ -478,7 +389,7 @@ describe('runAgent', () => {
     // Default: agent meta for .md files, minimal template for .spec.md files
     mockReadFile.mockImplementation(async (path: string) => {
       if (path.endsWith('.spec.md')) {
-        return '${agentPrompt}\n\n${memberLines}\n\nMention `@user`.\n\n## Recent Team Chat\n\n${chatSection}';
+        return '${agentPrompt}\n\n${memberLines}\n\nMention `@user`.';
       }
       return `---
 name: test-agent
@@ -706,5 +617,39 @@ You are a test agent.`;
       expect.stringContaining('worktrees'),
       'utf-8',
     );
+  });
+
+  it('prepends chat context to the user message when chatContext is provided', async () => {
+    mockQuery.mockReturnValue(
+      makeStream([{ type: 'result', subtype: 'success', result: 'done' }]),
+    );
+
+    await runAgent({
+      ...BASE_AGENT_ARGS,
+      chatContext: [
+        makeMsg('user', 'What should we build?'),
+        makeMsg('alice', 'Let me think...'),
+      ],
+    });
+
+    const calledPrompt = (
+      mockQuery.mock.calls[0] as unknown as [{ prompt: string }]
+    )[0].prompt;
+    expect(calledPrompt).toContain('User: What should we build?');
+    expect(calledPrompt).toContain('alice: Let me think...');
+    expect(calledPrompt).toContain(BASE_AGENT_ARGS.userMessage);
+  });
+
+  it('sends the user message unchanged when chatContext is empty', async () => {
+    mockQuery.mockReturnValue(
+      makeStream([{ type: 'result', subtype: 'success', result: 'done' }]),
+    );
+
+    await runAgent({ ...BASE_AGENT_ARGS, chatContext: [] });
+
+    const calledPrompt = (
+      mockQuery.mock.calls[0] as unknown as [{ prompt: string }]
+    )[0].prompt;
+    expect(calledPrompt).toBe(BASE_AGENT_ARGS.userMessage);
   });
 });

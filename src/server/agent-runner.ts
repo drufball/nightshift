@@ -64,7 +64,6 @@ export async function loadPromptTemplate(
  *   ${teamFolder}     — path to the team folder
  *   ${projectBranch}  — current git branch (project templates only)
  *   ${memberLines}    — formatted team roster
- *   ${chatSection}    — recent chat block, or empty string if no messages
  */
 export function buildSystemPrompt(
   templateContent: string,
@@ -72,7 +71,6 @@ export function buildSystemPrompt(
   teamName: string,
   teamFolder: string,
   teamMembers: Array<{ name: string; description: string; isLead: boolean }>,
-  chatContext: Message[],
   projectBranch?: string,
 ): string {
   const memberLines = teamMembers
@@ -82,22 +80,12 @@ export function buildSystemPrompt(
     )
     .join('\n');
 
-  const chatSection =
-    chatContext.length > 0
-      ? chatContext
-          .map(
-            (m) => `${m.sender === 'user' ? 'User' : m.sender}: ${m.content}`,
-          )
-          .join('\n')
-      : '';
-
   return templateContent
     .replace('${agentPrompt}', agentPrompt)
     .replace('${teamName}', teamName)
     .replace('${teamFolder}', teamFolder)
     .replace('${projectBranch}', projectBranch ?? '')
     .replace('${memberLines}', memberLines)
-    .replace('${chatSection}', chatSection)
     .trim();
 }
 
@@ -191,9 +179,21 @@ export async function runAgent({
     resolvedTeamName,
     resolvedTeamFolder,
     teamMembers,
-    chatContext,
     projectBranch,
   );
+
+  const formattedChat =
+    chatContext.length > 0
+      ? chatContext
+          .map(
+            (m) => `${m.sender === 'user' ? 'User' : m.sender}: ${m.content}`,
+          )
+          .join('\n')
+      : null;
+
+  const messageWithContext = formattedChat
+    ? `Recent chat:\n\n${formattedChat}\n\n---\n\n${userMessage}`
+    : userMessage;
 
   onStatus?.('working', 'thinking...');
 
@@ -201,7 +201,7 @@ export async function runAgent({
 
   try {
     const stream = query({
-      prompt: userMessage,
+      prompt: messageWithContext,
       options: {
         cwd: worktreeDir ?? cwd,
         allowedTools: [

@@ -24,6 +24,8 @@ The team folder contains shared workspace documents. Read them to understand the
 - **MEMORY.md** — lessons learned from past work; prepend new entries as work progresses
 - **DECISIONS.md** — settled decisions; check here before proposing something the team has already decided
 
+You are working on project branch `${projectBranch}`, which was created from the team's main branch. All implementation work happens here in an isolated worktree.
+
 Members — use @name to mention a teammate:
 
 ${memberLines}
@@ -31,11 +33,3 @@ ${memberLines}
 Mention `@user` when you need input from the human user before continuing.
 
 **Before handing off:** commit all your work to `${projectBranch}` before passing control back to the lead or another teammate.
-
----
-
-## Recent Project Chat
-
-The following messages were recently posted in the project chat. Use this as context for your work:
-
-${chatSection}

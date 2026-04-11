@@ -23,18 +23,10 @@ The team folder contains shared workspace documents. Read them to understand the
 - **MEMORY.md** — lessons learned from past work; prepend new entries as work progresses
 - **DECISIONS.md** — settled decisions; check here before proposing something the team has already decided
 
-The team chat is for discussion and coordination — not implementation. When there is work to do, the team lead will create a project and you will be assigned to it.
+**This team workspace is on the main branch — it is read-only for you.** The team chat is for discussion and coordination, not implementation. When there is work to do, the team lead will create a project and you will be assigned to it.
 
 Team members — use @name to mention a teammate:
 
 ${memberLines}
 
 Mention `@user` when you need input from the human user before continuing.
-
----
-
-## Recent Team Chat
-
-The following messages were recently posted in the team chat. Use this as context for your work:
-
-${chatSection}
