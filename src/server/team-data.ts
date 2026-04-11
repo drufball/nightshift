@@ -401,11 +401,55 @@ export const getAgentSession = createServerFn({ method: 'GET' })
     const db = await getDb();
 
     const session = getSession(db, data.teamId, data.agentName, data.projectId);
+
+    // Build the system prompt for visual inspection in the session view.
+    let systemPrompt: string | null = null;
+    try {
+      const cwd = await resolveCwd();
+      const teams = await readTeams(cwd);
+      const team = teams.find((t) => t.name === data.teamId);
+      if (team) {
+        const { join } = await import('node:path');
+        const { readAgentMeta, loadPromptTemplate, buildSystemPrompt } =
+          await import('./agent-runner');
+        const [teamMemberMeta, agentMeta] = await Promise.all([
+          readTeamMemberMeta(cwd, team),
+          readAgentMeta(cwd, data.agentName).catch(() => null),
+        ]);
+        if (agentMeta) {
+          const isLead = teamMemberMeta.some(
+            (m) => m.name === data.agentName && m.isLead,
+          );
+          let projectBranch: string | undefined;
+          if (data.projectId) {
+            const project = db
+              .prepare('SELECT branch FROM projects WHERE id = ?')
+              .get(data.projectId) as { branch: string } | undefined;
+            projectBranch = project?.branch;
+          }
+          const teamFolder = join('.nightshift', 'teams', team.name);
+          const template = await loadPromptTemplate(isLead, projectBranch);
+          systemPrompt = buildSystemPrompt(
+            template,
+            agentMeta.systemPrompt,
+            team.name,
+            teamFolder,
+            teamMemberMeta,
+            projectBranch,
+          );
+        }
+      }
+    } catch {
+      // If anything fails (no team config yet, missing agent file, etc.),
+      // just omit the system prompt rather than breaking the whole view.
+    }
+
     if (!session?.sdk_session_id) {
       return {
         messages: [] as AgentSessionMessage[],
         status: (session?.status ?? 'idle') as 'idle' | 'working',
         statusText: session?.status_text ?? null,
+        systemPrompt,
       };
     }
 
@@ -420,6 +464,7 @@ export const getAgentSession = createServerFn({ method: 'GET' })
       messages,
       status: session.status,
       statusText: session.status_text,
+      systemPrompt,
     };
   });
 

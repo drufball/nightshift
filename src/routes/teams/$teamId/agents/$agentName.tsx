@@ -8,11 +8,12 @@ export const Route = createFileRoute('/teams/$teamId/agents/$agentName')({
 
 function AgentSessionView_() {
   const { agentName } = Route.useParams();
-  const { navBlocks, focusedIdx, setFocusedIdx, bottomRef } =
+  const { navBlocks, focusedIdx, setFocusedIdx, bottomRef, sessionData } =
     useTeamPageContext();
   return (
     <AgentSessionView
       agentName={agentName}
+      systemPrompt={sessionData?.systemPrompt}
       navBlocks={navBlocks}
       focusedIdx={focusedIdx}
       onFocusBlock={setFocusedIdx}
