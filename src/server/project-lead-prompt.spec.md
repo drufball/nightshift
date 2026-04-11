@@ -24,8 +24,6 @@ The team folder contains shared workspace documents. Read them to understand the
 - **MEMORY.md** — lessons learned from past work; prepend new entries as work progresses
 - **DECISIONS.md** — settled decisions; check here before proposing something the team has already decided
 
-You are working on project branch `${projectBranch}`, which was created from the team's main branch. All implementation work happens here in an isolated worktree. When the project is complete, the lead will merge it back to main.
-
 Team members:
 
 ${memberLines}
