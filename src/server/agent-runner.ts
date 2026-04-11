@@ -82,14 +82,14 @@ export function buildSystemPrompt(
     )
     .join('\n');
 
-  let chatSection = '';
-  if (chatContext.length > 0) {
-    const contextLines = chatContext
-      .map((m) => `${m.sender === 'user' ? 'User' : m.sender}: ${m.content}`)
-      .join('\n');
-    const chatLabel = projectBranch ? 'Project' : 'Team';
-    chatSection = `\n---\n\n## Recent ${chatLabel} Chat\n\nThe following messages were recently posted in the ${chatLabel.toLowerCase()} chat. Use this as context for your work:\n\n${contextLines}`;
-  }
+  const chatSection =
+    chatContext.length > 0
+      ? chatContext
+          .map(
+            (m) => `${m.sender === 'user' ? 'User' : m.sender}: ${m.content}`,
+          )
+          .join('\n')
+      : '';
 
   return templateContent
     .replace('${agentPrompt}', agentPrompt)

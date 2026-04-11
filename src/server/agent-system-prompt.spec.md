@@ -21,22 +21,21 @@ following placeholders filled in at runtime:
 | `${teamFolder}`    | Path to the team directory (`.nightshift/teams/{name}`)       |
 | `${projectBranch}` | Current git branch (project templates only)                   |
 | `${memberLines}`   | Formatted team roster — `- **name** [(lead)]: description`    |
-| `${chatSection}`   | Recent chat block (see below), or empty string if no messages |
+| `${chatSection}`   | Formatted chat messages, or empty string if no messages       |
 
 ## Recent Chat Section
 
-When `chatContext` contains messages, `${chatSection}` expands to:
+Each template owns its own section heading (`## Recent Team Chat` or
+`## Recent Project Chat`). `${chatSection}` only contains the formatted
+message lines:
 
 ```
----
-
-## Recent Team Chat   ← "Project Chat" when a project branch is set
-
-The following messages were recently posted in the team chat. Use this as context for your work:
-
 User: Can you add a login page?
 project-lead: Sure, let me coordinate the team.
 ```
+
+When `chatContext` is empty, `${chatSection}` is an empty string — the
+heading is still present in the template but no messages follow it.
 
 Up to the last 20 messages are included. Messages are formatted as
 `{sender}: {content}`, with user messages labeled `User`.

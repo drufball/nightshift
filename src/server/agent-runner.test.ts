@@ -29,11 +29,14 @@ const mockReadFile = mock(async (path: string, _enc: string) => {
       'Team: **${teamName}**',
       'Team folder: `${teamFolder}`',
       '',
-      'Members — use @name to mention a teammate and ensure they respond next:',
-      '',
       '${memberLines}',
       '',
       'Mention `@user` when you need input from the human user before continuing.',
+      '',
+      '---',
+      '',
+      '## Recent Team Chat',
+      '',
       '${chatSection}',
     ].join('\n');
   }
@@ -284,10 +287,17 @@ const TEAM_TEMPLATE = [
   '${memberLines}',
   '',
   'Mention `@user` when you need input from the human user before continuing.',
+  '',
+  '---',
+  '',
+  '## Recent Team Chat',
+  '',
+  'The following messages were recently posted in the team chat:',
+  '',
   '${chatSection}',
 ].join('\n');
 
-// A minimal project template — adds the project branch line.
+// A minimal project template — adds the project branch line and "Project Chat" label.
 const PROJECT_TEMPLATE = [
   '${agentPrompt}',
   '',
@@ -302,6 +312,13 @@ const PROJECT_TEMPLATE = [
   '${memberLines}',
   '',
   'Mention `@user` when you need input from the human user before continuing.',
+  '',
+  '---',
+  '',
+  '## Recent Project Chat',
+  '',
+  'The following messages were recently posted in the project chat:',
+  '',
   '${chatSection}',
 ].join('\n');
 
@@ -362,7 +379,7 @@ describe('buildSystemPrompt', () => {
     expect(result).toContain('`feature/my-branch`');
   });
 
-  it('omits Recent Team Chat section when chatContext is empty', () => {
+  it('chatSection is empty when chatContext is empty', () => {
     const result = buildSystemPrompt(
       TEAM_TEMPLATE,
       'Prompt.',
@@ -371,7 +388,10 @@ describe('buildSystemPrompt', () => {
       teamMembers,
       [],
     );
-    expect(result).not.toContain('Recent Team Chat');
+    // The heading comes from the template and is always present
+    expect(result).toContain('Recent Team Chat');
+    // But no message lines appear
+    expect(result).not.toContain('User:');
   });
 
   it('includes chat history lines when chatContext is provided', () => {
@@ -458,7 +478,7 @@ describe('runAgent', () => {
     // Default: agent meta for .md files, minimal template for .spec.md files
     mockReadFile.mockImplementation(async (path: string) => {
       if (path.endsWith('.spec.md')) {
-        return '${agentPrompt}\n\n${memberLines}\n\nMention `@user`.\n${chatSection}';
+        return '${agentPrompt}\n\n${memberLines}\n\nMention `@user`.\n\n## Recent Team Chat\n\n${chatSection}';
       }
       return `---
 name: test-agent
