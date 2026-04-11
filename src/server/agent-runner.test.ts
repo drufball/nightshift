@@ -15,8 +15,28 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
   query: mockQuery,
 }));
 
-// Mock node:fs/promises so readAgentMeta doesn't hit the real filesystem
-const mockReadFile = mock(async (_path: string, _enc: string) => {
+// Mock node:fs/promises so readAgentMeta and loadPromptTemplate don't hit disk
+const mockReadFile = mock(async (path: string, _enc: string) => {
+  if (path.endsWith('.spec.md')) {
+    // Return a minimal template for prompt-spec files
+    return [
+      '${agentPrompt}',
+      '',
+      '---',
+      '',
+      '## Your Team',
+      '',
+      'Team: **${teamName}**',
+      'Team folder: `${teamFolder}`',
+      '',
+      'Members — use @name to mention a teammate and ensure they respond next:',
+      '',
+      '${memberLines}',
+      '',
+      'Mention `@user` when you need input from the human user before continuing.',
+      '${chatSection}',
+    ].join('\n');
+  }
   return `---
 name: test-agent
 description: A test agent
@@ -37,8 +57,10 @@ import type { Message } from '~/db/messages';
 import {
   buildSystemPrompt,
   formatToolStatus,
+  loadPromptTemplate,
   parseAgentMeta,
   runAgent,
+  selectPromptTemplate,
   shouldFlushThinking,
 } from './agent-runner';
 
@@ -173,6 +195,59 @@ describe('shouldFlushThinking', () => {
 });
 
 // ---------------------------------------------------------------------------
+// selectPromptTemplate
+// ---------------------------------------------------------------------------
+
+describe('selectPromptTemplate', () => {
+  it('selects team-member template for non-lead without project branch', () => {
+    expect(selectPromptTemplate(false, undefined)).toBe(
+      'team-member-prompt.spec.md',
+    );
+  });
+
+  it('selects team-lead template for lead without project branch', () => {
+    expect(selectPromptTemplate(true, undefined)).toBe(
+      'team-lead-prompt.spec.md',
+    );
+  });
+
+  it('selects project-member template for non-lead with project branch', () => {
+    expect(selectPromptTemplate(false, 'feature/login')).toBe(
+      'project-member-prompt.spec.md',
+    );
+  });
+
+  it('selects project-lead template for lead with project branch', () => {
+    expect(selectPromptTemplate(true, 'feature/login')).toBe(
+      'project-lead-prompt.spec.md',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadPromptTemplate
+// ---------------------------------------------------------------------------
+
+describe('loadPromptTemplate', () => {
+  beforeEach(() => {
+    mockReadFile.mockReset();
+    mockReadFile.mockImplementation(async (path: string) => {
+      return `template-content-for:${path}`;
+    });
+  });
+
+  it('reads the correct spec file for team-member context', async () => {
+    const content = await loadPromptTemplate(false, undefined);
+    expect(content).toContain('team-member-prompt.spec.md');
+  });
+
+  it('reads the correct spec file for project-lead context', async () => {
+    const content = await loadPromptTemplate(true, 'feature/branch');
+    expect(content).toContain('project-lead-prompt.spec.md');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // buildSystemPrompt
 // ---------------------------------------------------------------------------
 
@@ -193,6 +268,43 @@ function makeMsg(
   };
 }
 
+// A minimal team template for use in buildSystemPrompt tests.
+const TEAM_TEMPLATE = [
+  '${agentPrompt}',
+  '',
+  '---',
+  '',
+  '## Your Team',
+  '',
+  'Team: **${teamName}**',
+  'Team folder: `${teamFolder}`',
+  '',
+  'Members — use @name to mention a teammate and ensure they respond next:',
+  '',
+  '${memberLines}',
+  '',
+  'Mention `@user` when you need input from the human user before continuing.',
+  '${chatSection}',
+].join('\n');
+
+// A minimal project template — adds the project branch line.
+const PROJECT_TEMPLATE = [
+  '${agentPrompt}',
+  '',
+  '---',
+  '',
+  '## Your Team',
+  '',
+  'Team: **${teamName}**',
+  'Team folder: `${teamFolder}`',
+  'Current project branch: `${projectBranch}`',
+  '',
+  '${memberLines}',
+  '',
+  'Mention `@user` when you need input from the human user before continuing.',
+  '${chatSection}',
+].join('\n');
+
 describe('buildSystemPrompt', () => {
   const teamMembers = [
     { name: 'alice', description: 'Lead engineer', isLead: true },
@@ -201,6 +313,7 @@ describe('buildSystemPrompt', () => {
 
   it('includes the agent base prompt', () => {
     const result = buildSystemPrompt(
+      TEAM_TEMPLATE,
       'You are alice.',
       'my-team',
       '.nightshift/teams/my-team',
@@ -212,6 +325,7 @@ describe('buildSystemPrompt', () => {
 
   it('includes team name and team folder', () => {
     const result = buildSystemPrompt(
+      TEAM_TEMPLATE,
       'Prompt.',
       'my-team',
       '.nightshift/teams/my-team',
@@ -224,6 +338,7 @@ describe('buildSystemPrompt', () => {
 
   it('marks the lead member with (lead)', () => {
     const result = buildSystemPrompt(
+      TEAM_TEMPLATE,
       'Prompt.',
       'my-team',
       '.nightshift/teams/my-team',
@@ -234,8 +349,9 @@ describe('buildSystemPrompt', () => {
     expect(result).not.toContain('**bob** (lead)');
   });
 
-  it('includes project branch when provided', () => {
+  it('substitutes projectBranch into the template', () => {
     const result = buildSystemPrompt(
+      PROJECT_TEMPLATE,
       'Prompt.',
       'my-team',
       '.nightshift/teams/my-team',
@@ -248,6 +364,7 @@ describe('buildSystemPrompt', () => {
 
   it('omits Recent Team Chat section when chatContext is empty', () => {
     const result = buildSystemPrompt(
+      TEAM_TEMPLATE,
       'Prompt.',
       'my-team',
       '.nightshift/teams/my-team',
@@ -263,6 +380,7 @@ describe('buildSystemPrompt', () => {
       makeMsg('alice', 'Hi there'),
     ];
     const result = buildSystemPrompt(
+      TEAM_TEMPLATE,
       'Prompt.',
       'my-team',
       '.nightshift/teams/my-team',
@@ -276,6 +394,7 @@ describe('buildSystemPrompt', () => {
 
   it('instructs use of @user to hand back to human', () => {
     const result = buildSystemPrompt(
+      TEAM_TEMPLATE,
       'Prompt.',
       'my-team',
       '.nightshift/teams/my-team',
@@ -288,6 +407,7 @@ describe('buildSystemPrompt', () => {
   it('labels chat context as "Recent Project Chat" when projectBranch is provided', () => {
     const messages = [makeMsg('user', 'Hello project')];
     const result = buildSystemPrompt(
+      PROJECT_TEMPLATE,
       'Prompt.',
       'my-team',
       '.nightshift/teams/my-team',
@@ -302,6 +422,7 @@ describe('buildSystemPrompt', () => {
   it('labels chat context as "Recent Team Chat" when no projectBranch', () => {
     const messages = [makeMsg('user', 'Hello team')];
     const result = buildSystemPrompt(
+      TEAM_TEMPLATE,
       'Prompt.',
       'my-team',
       '.nightshift/teams/my-team',
@@ -334,12 +455,17 @@ describe('runAgent', () => {
   beforeEach(() => {
     mockQuery.mockReset();
     mockReadFile.mockReset();
-    // Default agent file content
-    mockReadFile.mockResolvedValue(`---
+    // Default: agent meta for .md files, minimal template for .spec.md files
+    mockReadFile.mockImplementation(async (path: string) => {
+      if (path.endsWith('.spec.md')) {
+        return '${agentPrompt}\n\n${memberLines}\n\nMention `@user`.\n${chatSection}';
+      }
+      return `---
 name: test-agent
 description: A test agent
 ---
-You are a test agent.`);
+You are a test agent.`;
+    });
   });
 
   it('returns the result text from a successful single-turn completion', async () => {
