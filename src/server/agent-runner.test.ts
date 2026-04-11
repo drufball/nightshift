@@ -505,4 +505,60 @@ You are a test agent.`);
     const result = await runAgent(BASE_AGENT_ARGS);
     expect(result).toBe('');
   });
+
+  it('passes cwd to SDK when no worktreeDir is given', async () => {
+    mockQuery.mockReturnValue(
+      makeStream([{ type: 'result', subtype: 'success', result: 'done' }]),
+    );
+
+    await runAgent({ ...BASE_AGENT_ARGS, cwd: '/repo-root' });
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({ cwd: '/repo-root' }),
+      }),
+    );
+  });
+
+  it('passes worktreeDir to SDK as cwd when provided', async () => {
+    mockQuery.mockReturnValue(
+      makeStream([{ type: 'result', subtype: 'success', result: 'done' }]),
+    );
+
+    await runAgent({
+      ...BASE_AGENT_ARGS,
+      cwd: '/repo-root',
+      worktreeDir: '/repo-root/.nightshift/worktrees/my-feature',
+    });
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          cwd: '/repo-root/.nightshift/worktrees/my-feature',
+        }),
+      }),
+    );
+  });
+
+  it('reads agent metadata from cwd (git root) even when worktreeDir differs', async () => {
+    mockQuery.mockReturnValue(
+      makeStream([{ type: 'result', subtype: 'success', result: 'done' }]),
+    );
+
+    await runAgent({
+      ...BASE_AGENT_ARGS,
+      cwd: '/repo-root',
+      worktreeDir: '/repo-root/.nightshift/worktrees/my-feature',
+    });
+
+    // readFile should have been called with the git-root path, not the worktree path
+    expect(mockReadFile).toHaveBeenCalledWith(
+      expect.stringContaining('/repo-root/.nightshift/agents/test-agent.md'),
+      'utf-8',
+    );
+    expect(mockReadFile).not.toHaveBeenCalledWith(
+      expect.stringContaining('worktrees'),
+      'utf-8',
+    );
+  });
 });

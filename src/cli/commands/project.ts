@@ -7,9 +7,9 @@ import { getDbPath, openDb } from '~/db/index';
 import {
   branchExists,
   getOpenProjectsByName,
-  insertProject,
   markProjectMerged,
 } from '~/db/projects';
+import { createProjectWithWorktree } from '~/server/worktrees';
 import { assertInitialized, assertNotExists, assertValidName } from '../fs';
 
 function git(args: string[], cwd: string): string {
@@ -38,8 +38,14 @@ export async function createProject(
   const worktreePath = join(cwd, '.nightshift', 'worktrees', name);
   await assertNotExists(worktreePath, `Project already exists: ${name}`);
 
-  git(['worktree', 'add', worktreePath, '-b', branch], cwd);
-  insertProject(resolvedDb, name, team, branch);
+  await createProjectWithWorktree(
+    cwd,
+    worktreePath,
+    name,
+    team,
+    branch,
+    resolvedDb,
+  );
 }
 
 export async function mergeProject(

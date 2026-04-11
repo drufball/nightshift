@@ -112,6 +112,7 @@ export async function runAgent({
   teamFolder,
   projectBranch,
   cwd,
+  worktreeDir,
   existingSdkSessionId,
   onStatus,
   onSessionId,
@@ -123,7 +124,17 @@ export async function runAgent({
   teamName?: string;
   teamFolder?: string;
   projectBranch?: string;
+  /**
+   * Git root — used to locate nightshift config files (.nightshift/agents/,
+   * .nightshift/teams/). Always the repo root, even for project agents.
+   */
   cwd: string;
+  /**
+   * Worktree directory for the project. When set, Claude Code runs here so it
+   * can edit files on the project branch. Nightshift config is still read from
+   * `cwd` (the repo root).
+   */
+  worktreeDir?: string;
   /** Pass an existing SDK session ID to resume a prior conversation. */
   existingSdkSessionId?: string;
   /** Called whenever the agent's status changes (tool use, thinking, idle). */
@@ -134,6 +145,7 @@ export async function runAgent({
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
   const { join } = await import('node:path');
+  // Always read agent metadata from the repo root, not the worktree.
   const meta = await readAgentMeta(cwd, agentName);
   const resolvedTeamName = teamName ?? agentName;
   const resolvedTeamFolder =
@@ -155,7 +167,7 @@ export async function runAgent({
     const stream = query({
       prompt: userMessage,
       options: {
-        cwd,
+        cwd: worktreeDir ?? cwd,
         allowedTools: [
           'Read',
           'Write',

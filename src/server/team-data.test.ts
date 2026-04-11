@@ -1,8 +1,6 @@
-// ---------------------------------------------------------------------------
-// Regular imports
-// ---------------------------------------------------------------------------
-
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { join } from 'node:path';
+import { createGitRepo, createTmpDir, removeTmpDir } from '~/cli/test-helpers';
 import { type Database, openDb } from '~/db/index';
 import {
   getProjectMessages,
@@ -10,7 +8,11 @@ import {
   insertMessage,
 } from '~/db/messages';
 import { getSession } from '~/db/sessions';
-import { parseMentions, runConversationLoop } from './team-data';
+import {
+  parseMentions,
+  resolveProjectCwd,
+  runConversationLoop,
+} from './team-data';
 import type { TeamMeta } from './teams';
 
 // ---------------------------------------------------------------------------
@@ -321,5 +323,107 @@ describe('runConversationLoop', () => {
     });
 
     expect(capturedOpts?.projectBranch).toBe('feature-xyz');
+  });
+
+  it('passes worktreeDir to the agent when provided', async () => {
+    const projectId = 'proj-worktree';
+    // biome-ignore lint/suspicious/noExplicitAny: test capture
+    let capturedOpts: Record<string, any> | undefined;
+    // biome-ignore lint/suspicious/noExplicitAny: test capture
+    const runAgentFn = mock(async (opts: Record<string, any>) => {
+      capturedOpts = opts;
+      return '@user done';
+    });
+    insertMessage(db, 'test-team', 'user', 'hey @alice work here', projectId);
+
+    await runConversationLoop({
+      db,
+      teamId: 'test-team',
+      team,
+      cwd: '/repo-root',
+      teamMemberMeta,
+      projectId,
+      worktreeDir: '/repo-root/.nightshift/worktrees/my-feature',
+      runAgentFn,
+    });
+
+    expect(capturedOpts?.cwd).toBe('/repo-root');
+    expect(capturedOpts?.worktreeDir).toBe(
+      '/repo-root/.nightshift/worktrees/my-feature',
+    );
+  });
+
+  it('teamFolder is an absolute path based on cwd', async () => {
+    // biome-ignore lint/suspicious/noExplicitAny: test capture
+    let capturedOpts: Record<string, any> | undefined;
+    // biome-ignore lint/suspicious/noExplicitAny: test capture
+    const runAgentFn = mock(async (opts: Record<string, any>) => {
+      capturedOpts = opts;
+      return '@user done';
+    });
+    insertMessage(db, 'test-team', 'user', 'any thoughts?');
+
+    await runConversationLoop({
+      db,
+      teamId: 'test-team',
+      team,
+      cwd: '/repo-root',
+      teamMemberMeta,
+      runAgentFn,
+    });
+
+    expect(capturedOpts?.teamFolder).toBe(
+      '/repo-root/.nightshift/teams/test-team',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveProjectCwd
+// ---------------------------------------------------------------------------
+
+describe('resolveProjectCwd', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await createTmpDir();
+    await createGitRepo(tmpDir);
+  });
+
+  afterEach(async () => {
+    await removeTmpDir(tmpDir);
+  });
+
+  it('returns git root when no branch is given', async () => {
+    const result = await resolveProjectCwd(tmpDir, undefined);
+    expect(result).toBe(tmpDir);
+  });
+
+  it('returns the worktree path when the branch has a worktree', async () => {
+    const { execSync } = await import('node:child_process');
+    const { mkdir, realpath } = await import('node:fs/promises');
+    const worktreeDir = join(tmpDir, '.nightshift', 'worktrees', 'my-feature');
+    await mkdir(join(tmpDir, '.nightshift', 'worktrees'), { recursive: true });
+    execSync('git branch feature-branch', { cwd: tmpDir, stdio: 'pipe' });
+    execSync(`git worktree add "${worktreeDir}" feature-branch`, {
+      cwd: tmpDir,
+      stdio: 'pipe',
+    });
+
+    const result = await resolveProjectCwd(tmpDir, 'feature-branch');
+    // Normalize both paths to resolve macOS /var → /private/var symlink
+    expect(await realpath(result)).toBe(await realpath(worktreeDir));
+  });
+
+  it('falls back to git root when branch has no worktree', async () => {
+    const { execSync } = await import('node:child_process');
+    execSync('git checkout -b no-worktree-branch', {
+      cwd: tmpDir,
+      stdio: 'pipe',
+    });
+    execSync('git checkout -', { cwd: tmpDir, stdio: 'pipe' });
+
+    const result = await resolveProjectCwd(tmpDir, 'no-worktree-branch');
+    expect(result).toBe(tmpDir);
   });
 });
