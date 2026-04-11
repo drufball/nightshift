@@ -406,42 +406,58 @@ export const getAgentSession = createServerFn({ method: 'GET' })
     let systemPrompt: string | null = null;
     try {
       const cwd = await resolveCwd();
-      const teams = await readTeams(cwd);
-      const team = teams.find((t) => t.name === data.teamId);
-      if (team) {
-        const { join } = await import('node:path');
-        const { readAgentMeta, loadPromptTemplate, buildSystemPrompt } =
-          await import('./agent-runner');
-        const [teamMemberMeta, agentMeta] = await Promise.all([
-          readTeamMemberMeta(cwd, team),
-          readAgentMeta(cwd, data.agentName).catch(() => null),
-        ]);
-        if (agentMeta) {
-          const isLead = teamMemberMeta.some(
+      const { join } = await import('node:path');
+      const { readAgentMeta, loadPromptTemplate, buildSystemPrompt } =
+        await import('./agent-runner');
+
+      // Try to resolve team context for accurate template and member list.
+      // Fall back to empty list if TOML is unavailable.
+      let isLead = false;
+      let teamMemberMeta: Array<{
+        name: string;
+        description: string;
+        isLead: boolean;
+      }> = [];
+      try {
+        const teams = await readTeams(cwd);
+        const team = teams.find((t) => t.name === data.teamId);
+        if (team) {
+          teamMemberMeta = await readTeamMemberMeta(cwd, team);
+          isLead = teamMemberMeta.some(
             (m) => m.name === data.agentName && m.isLead,
           );
-          let projectBranch: string | undefined;
-          if (data.projectId) {
-            const project = db
-              .prepare('SELECT branch FROM projects WHERE id = ?')
-              .get(data.projectId) as { branch: string } | undefined;
-            projectBranch = project?.branch;
-          }
-          const teamFolder = join('.nightshift', 'teams', team.name);
-          const template = await loadPromptTemplate(isLead, projectBranch);
-          systemPrompt = buildSystemPrompt(
-            template,
-            agentMeta.systemPrompt,
-            team.name,
-            teamFolder,
-            teamMemberMeta,
-            projectBranch,
-          );
         }
+      } catch {
+        // Non-fatal — proceed with empty member list
       }
-    } catch {
-      // If anything fails (no team config yet, missing agent file, etc.),
-      // just omit the system prompt rather than breaking the whole view.
+
+      let projectBranch: string | undefined;
+      if (data.projectId) {
+        const project = db
+          .prepare('SELECT branch FROM projects WHERE id = ?')
+          .get(data.projectId) as { branch: string } | undefined;
+        projectBranch = project?.branch;
+      }
+
+      const teamFolder = join('.nightshift', 'teams', data.teamId);
+      const [agentMeta, template] = await Promise.all([
+        readAgentMeta(cwd, data.agentName).catch(() => null),
+        loadPromptTemplate(isLead, projectBranch),
+      ]);
+
+      systemPrompt = buildSystemPrompt(
+        template,
+        agentMeta?.systemPrompt ?? '',
+        data.teamId,
+        teamFolder,
+        teamMemberMeta,
+        projectBranch,
+      );
+    } catch (err) {
+      console.error(
+        '[nightshift] getAgentSession: failed to build system prompt:',
+        err,
+      );
     }
 
     if (!session?.sdk_session_id) {
