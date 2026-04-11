@@ -608,13 +608,13 @@ You are a test agent.`;
       worktreeDir: '/repo-root/.nightshift/worktrees/my-feature',
     });
 
-    // readFile should have been called with the git-root path, not the worktree path
+    // Agent metadata must be read from cwd (the git root), not the worktree path
     expect(mockReadFile).toHaveBeenCalledWith(
       expect.stringContaining('/repo-root/.nightshift/agents/test-agent.md'),
       'utf-8',
     );
     expect(mockReadFile).not.toHaveBeenCalledWith(
-      expect.stringContaining('worktrees'),
+      expect.stringContaining('/repo-root/.nightshift/worktrees'),
       'utf-8',
     );
   });

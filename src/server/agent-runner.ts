@@ -48,9 +48,10 @@ export async function loadPromptTemplate(
   projectBranch?: string,
 ): Promise<string> {
   const { readFile } = await import('node:fs/promises');
-  const { join } = await import('node:path');
   const filename = selectPromptTemplate(isLead, projectBranch);
-  const templatePath = join(import.meta.dir, filename);
+  // Use import.meta.url (not import.meta.dir) so this works in both dev and
+  // bundled environments where import.meta.dir may be undefined.
+  const templatePath = new URL(filename, import.meta.url).pathname;
   return readFile(templatePath, 'utf-8');
 }
 
