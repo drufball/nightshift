@@ -32,7 +32,7 @@ When changing any harness behaviour:
 
 1. **Enumerate failure modes first.** Read the harness code and list hypotheses before running anything: where could agents get stuck, loop, hallucinate success, or lose session state?
 
-2. **Unit tests with mocks.** Test individual functions — `buildSystemPrompt`, `runConversationJudge`, `shouldFlushThinking`, session state transitions — with mocked SDK responses. Co-locate test files with source (e.g. `agent-runner.test.ts`). Run with `bun test`.
+2. **Unit tests with mocks.** Test individual functions — `buildSystemPrompt`, `shouldFlushThinking`, session state transitions, routing logic in `runConversationLoop` — with mocked SDK responses. Co-locate test files with source (e.g. `agent-runner.test.ts`). Run with `bun test`.
 
 3. **E2E tests with real calls.** Some failure modes only surface with real API responses. Write E2E tests that invoke the full `runAgent` or `runConversationLoop` path. Mark them clearly (e.g. a `// @e2e` comment or dedicated file) so they're not included in normal CI runs.
 
