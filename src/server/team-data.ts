@@ -464,11 +464,13 @@ export const sendProjectMessage = createServerFn({ method: 'POST' })
       (p) => p.id === data.projectId,
     );
 
+    const projectCwd = await resolveProjectCwd(cwd, project?.branch);
+
     await runConversationLoop({
       db,
       teamId: data.teamId,
       team: team ?? { name: data.teamId, lead: leadName, members: [] },
-      cwd,
+      cwd: projectCwd,
       teamMemberMeta,
       projectBranch: project?.branch,
       projectId: data.projectId,
@@ -508,15 +510,46 @@ export const getAgentSession = createServerFn({ method: 'GET' })
     };
   });
 
+/**
+ * Returns the worktree path for the project's branch if a worktree exists,
+ * otherwise falls back to the git root cwd.
+ * Exported for testing.
+ */
+export async function resolveProjectCwd(
+  cwd: string,
+  projectBranch: string | undefined,
+): Promise<string> {
+  if (!projectBranch) return cwd;
+  const { findProjectWorktreePath } = await import('./worktrees');
+  const worktreePath = await findProjectWorktreePath(cwd, projectBranch);
+  return worktreePath ?? cwd;
+}
+
 export const createNewProject = createServerFn({ method: 'POST' })
   .inputValidator((data: { teamId: string; name: string }) => data)
   .handler(async ({ data }) => {
-    const { insertProject } = await import('~/db/projects');
+    const { branchExists } = await import('~/db/projects');
+    const { join } = await import('node:path');
+    const { createProjectWithWorktree } = await import('./worktrees');
+
+    const cwd = await resolveCwd();
     const db = await getDb();
-    const branch =
+
+    const base =
       data.name
         .toLowerCase()
         .replace(/\s+/g, '-')
         .replace(/[^a-z0-9-]/g, '') || 'new-project';
-    return insertProject(db, data.name, data.teamId, branch);
+    const branch = branchExists(db, base)
+      ? `${base}-${Math.random().toString(16).slice(2, 6)}`
+      : base;
+    const worktreePath = join(cwd, '.nightshift', 'worktrees', branch);
+    return createProjectWithWorktree(
+      cwd,
+      worktreePath,
+      data.name,
+      data.teamId,
+      branch,
+      db,
+    );
   });
