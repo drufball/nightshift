@@ -401,11 +401,71 @@ export const getAgentSession = createServerFn({ method: 'GET' })
     const db = await getDb();
 
     const session = getSession(db, data.teamId, data.agentName, data.projectId);
+
+    // Build the system prompt for visual inspection in the session view.
+    let systemPrompt: string | null = null;
+    try {
+      const cwd = await resolveCwd();
+      const { join } = await import('node:path');
+      const { readAgentMeta, loadPromptTemplate, buildSystemPrompt } =
+        await import('./agent-runner');
+
+      // Try to resolve team context for accurate template and member list.
+      // Fall back to empty list if TOML is unavailable.
+      let isLead = false;
+      let teamMemberMeta: Array<{
+        name: string;
+        description: string;
+        isLead: boolean;
+      }> = [];
+      try {
+        const teams = await readTeams(cwd);
+        const team = teams.find((t) => t.name === data.teamId);
+        if (team) {
+          teamMemberMeta = await readTeamMemberMeta(cwd, team);
+          isLead = teamMemberMeta.some(
+            (m) => m.name === data.agentName && m.isLead,
+          );
+        }
+      } catch {
+        // Non-fatal — proceed with empty member list
+      }
+
+      let projectBranch: string | undefined;
+      if (data.projectId) {
+        const project = db
+          .prepare('SELECT branch FROM projects WHERE id = ?')
+          .get(data.projectId) as { branch: string } | undefined;
+        projectBranch = project?.branch;
+      }
+
+      const teamFolder = join('.nightshift', 'teams', data.teamId);
+      const [agentMeta, template] = await Promise.all([
+        readAgentMeta(cwd, data.agentName).catch(() => null),
+        loadPromptTemplate(isLead, projectBranch),
+      ]);
+
+      systemPrompt = buildSystemPrompt(
+        template,
+        agentMeta?.systemPrompt ?? '',
+        data.teamId,
+        teamFolder,
+        teamMemberMeta,
+        projectBranch,
+      );
+    } catch (err) {
+      console.error(
+        '[nightshift] getAgentSession: failed to build system prompt:',
+        err,
+      );
+    }
+
     if (!session?.sdk_session_id) {
       return {
         messages: [] as AgentSessionMessage[],
         status: (session?.status ?? 'idle') as 'idle' | 'working',
         statusText: session?.status_text ?? null,
+        systemPrompt,
       };
     }
 
@@ -420,6 +480,7 @@ export const getAgentSession = createServerFn({ method: 'GET' })
       messages,
       status: session.status,
       statusText: session.status_text,
+      systemPrompt,
     };
   });
 

@@ -32,16 +32,48 @@ export async function readAgentMeta(
   return parseAgentMeta(content);
 }
 
+/** Returns the filename of the appropriate prompt spec template. */
+export function selectPromptTemplate(
+  isLead: boolean,
+  projectBranch?: string,
+): string {
+  const context = projectBranch ? 'project' : 'team';
+  const role = isLead ? 'lead' : 'member';
+  return `${context}-${role}-prompt.spec.md`;
+}
+
+/** Loads the prompt spec template for the given role and context. */
+export async function loadPromptTemplate(
+  isLead: boolean,
+  projectBranch?: string,
+): Promise<string> {
+  const { readFile } = await import('node:fs/promises');
+  const filename = selectPromptTemplate(isLead, projectBranch);
+  // Use import.meta.url (not import.meta.dir) so this works in both dev and
+  // bundled environments where import.meta.dir may be undefined.
+  const templatePath = new URL(filename, import.meta.url).pathname;
+  return readFile(templatePath, 'utf-8');
+}
+
+/**
+ * Builds the complete system prompt by substituting dynamic data into the
+ * loaded spec template. The template uses ${placeholder} syntax.
+ *
+ * Placeholders:
+ *   ${agentPrompt}    — the agent's core instructions
+ *   ${teamName}       — the team name
+ *   ${teamFolder}     — path to the team folder
+ *   ${projectBranch}  — current git branch (project templates only)
+ *   ${memberLines}    — formatted team roster
+ */
 export function buildSystemPrompt(
+  templateContent: string,
   agentPrompt: string,
   teamName: string,
   teamFolder: string,
   teamMembers: Array<{ name: string; description: string; isLead: boolean }>,
-  chatContext: Message[],
   projectBranch?: string,
 ): string {
-  const parts: string[] = [agentPrompt];
-
   const memberLines = teamMembers
     .map(
       (m) =>
@@ -49,25 +81,13 @@ export function buildSystemPrompt(
     )
     .join('\n');
 
-  const projectLine = projectBranch
-    ? `\nCurrent project branch: \`${projectBranch}\``
-    : '';
-
-  parts.push(
-    `---\n\n## Your Team\n\nTeam: **${teamName}**\nTeam folder: \`${teamFolder}\`${projectLine}\n\nMembers — use @name to mention a teammate and ensure they respond next:\n\n${memberLines}\n\nMention \`@user\` when you need input from the human user before continuing.`,
-  );
-
-  if (chatContext.length > 0) {
-    const contextLines = chatContext
-      .map((m) => `${m.sender === 'user' ? 'User' : m.sender}: ${m.content}`)
-      .join('\n');
-    const chatLabel = projectBranch ? 'Project' : 'Team';
-    parts.push(
-      `---\n\n## Recent ${chatLabel} Chat\n\nThe following messages were recently posted in the ${chatLabel.toLowerCase()} chat. Use this as context for your work:\n\n${contextLines}`,
-    );
-  }
-
-  return parts.join('\n\n');
+  return templateContent
+    .replaceAll('${agentPrompt}', agentPrompt)
+    .replaceAll('${teamName}', teamName)
+    .replaceAll('${teamFolder}', teamFolder)
+    .replaceAll('${projectBranch}', projectBranch ?? '')
+    .replaceAll('${memberLines}', memberLines)
+    .trim();
 }
 
 export function formatToolStatus(
@@ -150,14 +170,31 @@ export async function runAgent({
   const resolvedTeamName = teamName ?? agentName;
   const resolvedTeamFolder =
     teamFolder ?? join('.nightshift', 'teams', resolvedTeamName);
+
+  const agentIsLead = teamMembers.some((m) => m.name === agentName && m.isLead);
+  const templateContent = await loadPromptTemplate(agentIsLead, projectBranch);
+
   const systemPrompt = buildSystemPrompt(
+    templateContent,
     meta.systemPrompt,
     resolvedTeamName,
     resolvedTeamFolder,
     teamMembers,
-    chatContext,
     projectBranch,
   );
+
+  const formattedChat =
+    chatContext.length > 0
+      ? chatContext
+          .map(
+            (m) => `${m.sender === 'user' ? 'User' : m.sender}: ${m.content}`,
+          )
+          .join('\n')
+      : null;
+
+  const messageWithContext = formattedChat
+    ? `Recent chat:\n\n${formattedChat}\n\n---\n\n${userMessage}`
+    : userMessage;
 
   onStatus?.('working', 'thinking...');
 
@@ -165,7 +202,7 @@ export async function runAgent({
 
   try {
     const stream = query({
-      prompt: userMessage,
+      prompt: messageWithContext,
       options: {
         cwd: worktreeDir ?? cwd,
         allowedTools: [

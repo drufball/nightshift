@@ -66,6 +66,7 @@ export type TeamPageContextType = {
   bottomRef: React.RefObject<HTMLDivElement | null>;
   projects: Project[];
   teamId: string;
+  sessionData: SessionData | null;
 };
 
 export const TeamPageContext = createContext<TeamPageContextType | null>(null);
@@ -610,8 +611,9 @@ function TeamPage() {
       bottomRef,
       projects,
       teamId,
+      sessionData,
     }),
-    [navBlocks, focusedIdx, projects, teamId],
+    [navBlocks, focusedIdx, projects, teamId, sessionData],
   );
 
   return (

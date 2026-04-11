@@ -64,6 +64,7 @@ export type SessionData = {
   messages: AgentSessionMessage[];
   status: 'idle' | 'working';
   statusText: string | null;
+  systemPrompt: string | null;
 };
 
 export type OverlayState =

@@ -50,12 +50,14 @@ export function SessionBlockContent({ block }: { block: ContentBlock }) {
 
 export function AgentSessionView({
   agentName,
+  systemPrompt,
   navBlocks,
   focusedIdx,
   onFocusBlock,
   bottomRef,
 }: {
   agentName: string;
+  systemPrompt?: string | null;
   navBlocks: NavBlock[];
   focusedIdx: number;
   onFocusBlock: (i: number) => void;
@@ -71,6 +73,16 @@ export function AgentSessionView({
 
   return (
     <div className="px-4 py-4 flex flex-col gap-4 mt-auto">
+      {systemPrompt && (
+        <details className="text-xs text-muted-foreground/50">
+          <summary className="cursor-pointer select-none font-medium">
+            system prompt
+          </summary>
+          <pre className="mt-2 whitespace-pre-wrap break-words text-[11px] leading-relaxed">
+            {systemPrompt}
+          </pre>
+        </details>
+      )}
       {navBlocks.length === 0 && (
         <p className="text-sm text-muted-foreground py-8 text-center">
           No session history for {agentName} yet.
